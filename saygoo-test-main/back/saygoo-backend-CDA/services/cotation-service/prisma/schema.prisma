@@ -1,0 +1,135 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum StatutCotation {
+  PROVISOIRE
+  VALIDEE
+  ENVOYEE
+  ACCEPTEE
+  REFUSEE
+  EXPIREE
+}
+
+enum TypeMarchandise {
+  CONTENEUR_20
+  CONTENEUR_40
+  VRAC
+  VEHICULE
+  COLIS
+  AUTRE
+}
+
+enum RegimeDouanier {
+  IM4
+  IM7
+  TRANSIT
+  REGIME_SUSPENSIF
+  EXPORT
+}
+
+enum TypeVehicule {
+  CATEGORIE_A
+  CATEGORIE_B
+  CATEGORIE_C
+}
+
+enum DeviseCode {
+  XOF
+  EUR
+  USD
+  GBP
+}
+
+model Cotation {
+  id              String         @id @default(uuid())
+  reference       String         @unique
+  dossierId       String?
+  clientId        String
+  clientNom       String
+  agentId         String
+  agentNom        String
+  statut          StatutCotation @default(PROVISOIRE)
+  typeMarchandise TypeMarchandise
+  regimeDouanier  RegimeDouanier @default(IM4)
+  typeVehicule    TypeVehicule?
+  devise          DeviseCode     @default(XOF)
+  valeurFOB       Float          @default(0)
+  valeurFret      Float          @default(0)
+  valeurAssurance Float          @default(0)
+  valeurCIF       Float          @default(0)
+  tauxDouane      Float          @default(0)
+  droitsDouane    Float          @default(0)
+  tauxTVA         Float          @default(0.18)
+  montantTVA      Float          @default(0)
+  tauxRS          Float          @default(0.01)
+  montantRS       Float          @default(0)
+  tauxTSP         Float          @default(0.005)
+  montantTSP      Float          @default(0)
+  totalDroitsTaxes Float         @default(0)
+  honorairesCDA   Float          @default(0)
+  modeCalculCDA   String         @default("FORFAIT")
+  fraisConsignataire Float       @default(0)
+  fraisTransport  Float          @default(0)
+  fraisStockage   Float          @default(0)
+  fraisManutention Float         @default(0)
+  autresFrais     Float          @default(0)
+  totalFrais      Float          @default(0)
+  totalGeneral    Float          @default(0)
+  nombreConteneurs Int           @default(1)
+  nombreVehicules  Int           @default(1)
+  notes           String?
+  dateExpiration  DateTime?
+  organisationId  String?
+  lignes          LigneCotation[]
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  @@index([clientId])
+  @@index([dossierId])
+  @@index([statut])
+}
+
+model LigneCotation {
+  id          String   @id @default(uuid())
+  cotation    Cotation @relation(fields: [cotationId], references: [id], onDelete: Cascade)
+  cotationId  String
+  description String
+  montant     Float
+  categorie   String
+  createdAt   DateTime @default(now())
+
+  @@index([cotationId])
+}
+
+model TarifDouanier {
+  id          String   @id @default(uuid())
+  codeHS      String   @unique
+  description String
+  tauxDouane  Float
+  tauxTVA     Float    @default(0.18)
+  tauxRS      Float    @default(0.01)
+  tauxTSP     Float    @default(0.005)
+  unite       String   @default("ad valorem")
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([codeHS])
+}
+
+model TauxChange {
+  id          String   @id @default(uuid())
+  devise      String
+  tauxVersXOF Float
+  source      String   @default("BCEAO")
+  dateRapport DateTime @default(now())
+  createdAt   DateTime @default(now())
+
+  @@index([devise])
+}

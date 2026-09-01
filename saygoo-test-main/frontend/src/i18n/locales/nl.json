@@ -1,0 +1,19 @@
+{
+  "translation": {
+    "nav": {
+      "home": "Home",
+      "services": "Diensten",
+      "about": "Over ons",
+      "contact": "Contact"
+    },
+    "auth": {
+      "login": "Inloggen",
+      "signup": "Aanmelden",
+      "close": "Sluiten"
+    },
+    "hero": {
+      "title": "Welkom bij SAYGOO",
+      "subtitle": "Expert in internationaal transit en logistiek."
+    }
+  }
+}

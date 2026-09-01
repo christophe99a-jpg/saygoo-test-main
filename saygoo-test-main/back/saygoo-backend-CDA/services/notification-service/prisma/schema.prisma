@@ -1,0 +1,70 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum TypeNotification {
+  EMAIL
+  SMS
+  PUSH
+  IN_APP
+}
+
+enum StatutNotification {
+  EN_ATTENTE
+  ENVOYEE
+  ECHEC
+  LUE
+}
+
+enum PrioriteNotification {
+  BASSE
+  NORMALE
+  HAUTE
+  URGENTE
+}
+
+model Notification {
+  id          String               @id @default(uuid())
+  type        TypeNotification
+  statut      StatutNotification   @default(EN_ATTENTE)
+  priorite    PrioriteNotification @default(NORMALE)
+  destinataire String
+  sujet       String?
+  contenu     String
+  metadata    Json?
+  userId      String?
+  dossierId   String?
+  factureId   String?
+  tentatives  Int                  @default(0)
+  maxTentatives Int                @default(3)
+  erreur      String?
+  luAt        DateTime?
+  envoyeAt    DateTime?
+  organisationId String?
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+
+  @@index([userId])
+  @@index([statut])
+  @@index([type])
+  @@index([createdAt])
+}
+
+model Template {
+  id          String   @id @default(uuid())
+  code        String   @unique
+  type        TypeNotification
+  sujet       String?
+  contenu     String
+  variables   String[]
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([code])
+}

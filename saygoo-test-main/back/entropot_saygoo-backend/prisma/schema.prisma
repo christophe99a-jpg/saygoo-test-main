@@ -1,0 +1,84 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Warehouse {
+  id               String        @id @default(uuid())
+  name             String
+  type             String
+  latitude         Float
+  longitude        Float
+  capacity_m2      Int
+  capacity_pallet  Int
+  temperature_type String
+  security_level   Int
+  status           String        @default("AVAILABLE")
+  reservations     Reservation[]
+  inventory        Inventory[]
+  createdAt        DateTime      @default(now())
+}
+
+model Reservation {
+  id                String    @id @default(uuid())
+  warehouse_id      String
+  user_id           String
+  capacity_reserved Int
+  start_date        DateTime
+  end_date          DateTime
+  status            String    @default("PENDING")
+  total_price       Decimal
+  createdAt         DateTime  @default(now())
+  warehouse         Warehouse @relation(fields: [warehouse_id], references: [id])
+}
+
+model Order {
+  id           String      @id @default(uuid())
+  customer_id  String
+  status       String      @default("PENDING")
+  total_amount Decimal
+  createdAt    DateTime    @default(now())
+  items        OrderItem[]
+  shipment     Shipment?
+}
+
+model OrderItem {
+  id         String @id @default(uuid())
+  order_id   String
+  product_id String
+  quantity   Int
+  order      Order  @relation(fields: [order_id], references: [id])
+}
+
+model Shipment {
+  id              String @id @default(uuid())
+  order_id        String @unique
+  carrier         String
+  status          String
+  tracking_number String
+  order           Order  @relation(fields: [order_id], references: [id])
+}
+
+model Inventory {
+  id           String    @id @default(uuid())
+  warehouse_id String
+  product_id   String
+  quantity     Int
+  entries      Int       @default(0)
+  exits        Int       @default(0)
+  losses       Int       @default(0)
+  updatedAt    DateTime  @updatedAt
+  warehouse    Warehouse @relation(fields: [warehouse_id], references: [id])
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String
+  role      String   @default("OPERATOR")
+  createdAt DateTime @default(now())
+}

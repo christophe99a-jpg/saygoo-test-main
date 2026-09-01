@@ -1,0 +1,19 @@
+{
+  "translation": {
+    "nav": {
+      "home": "Accueil",
+      "services": "Services",
+      "about": "À propos",
+      "contact": "Contact"
+    },
+    "auth": {
+      "login": "Connexion",
+      "signup": "S'inscrire",
+      "close": "Fermer"
+    },
+    "hero": {
+      "title": "Bienvenue chez SAYGOO",
+      "subtitle": "Expert en transit et logistique internationale."
+    }
+  }
+}

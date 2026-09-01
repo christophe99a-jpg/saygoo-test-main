@@ -1,0 +1,80 @@
+[2026-04-20 19:46:36] ERROR: Erreur connexion DB : SASL: SCRAM-SERVER-FIRST-MESSAGE: client password must be a string
+SequelizeConnectionError: SASL: SCRAM-SERVER-FIRST-MESSAGE: client password must be a string
+    at Client._connectionCallback (C:\Projects\saygoo-backend\node_modules\sequelize\lib\dialects\postgres\connection-manager.js:149:20)
+    at Client._handleErrorWhileConnecting (C:\Projects\saygoo-backend\node_modules\pg\lib\client.js:379:19)
+    at Client._handleErrorEvent (C:\Projects\saygoo-backend\node_modules\pg\lib\client.js:389:19)
+    at Connection.emit (node:events:508:28)
+    at Client._handleAuthSASLContinue (C:\Projects\saygoo-backend\node_modules\pg\lib\client.js:327:23)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+[2026-04-20 19:53:16] ERROR: Erreur connexion DB : authentification par mot de passe �chou�e pour l'utilisateur  � root �
+SequelizeConnectionError: authentification par mot de passe �chou�e pour l'utilisateur  � root �
+    at Client._connectionCallback (C:\Projects\saygoo-backend\node_modules\sequelize\lib\dialects\postgres\connection-manager.js:145:24)
+    at Client._handleErrorWhileConnecting (C:\Projects\saygoo-backend\node_modules\pg\lib\client.js:379:19)
+    at Client._handleErrorMessage (C:\Projects\saygoo-backend\node_modules\pg\lib\client.js:399:19)
+    at Connection.emit (node:events:508:28)
+    at C:\Projects\saygoo-backend\node_modules\pg\lib\connection.js:115:12
+    at Parser.parse (C:\Projects\saygoo-backend\node_modules\pg-protocol\dist\parser.js:38:17)
+    at Socket.<anonymous> (C:\Projects\saygoo-backend\node_modules\pg-protocol\dist\index.js:11:42)
+    at Socket.emit (node:events:508:28)
+    at addChunk (node:internal/streams/readable:563:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:514:3)
+[2026-04-20 19:58:58] ERROR: Erreur connexion DB : authentification par mot de passe �chou�e pour l'utilisateur  � postgres �
+SequelizeConnectionError: authentification par mot de passe �chou�e pour l'utilisateur  � postgres �
+    at Client._connectionCallback (C:\Projects\saygoo-backend\node_modules\sequelize\lib\dialects\postgres\connection-manager.js:145:24)
+    at Client._handleErrorWhileConnecting (C:\Projects\saygoo-backend\node_modules\pg\lib\client.js:379:19)
+    at Client._handleErrorMessage (C:\Projects\saygoo-backend\node_modules\pg\lib\client.js:399:19)
+    at Connection.emit (node:events:508:28)
+    at C:\Projects\saygoo-backend\node_modules\pg\lib\connection.js:115:12
+    at Parser.parse (C:\Projects\saygoo-backend\node_modules\pg-protocol\dist\parser.js:38:17)
+    at Socket.<anonymous> (C:\Projects\saygoo-backend\node_modules\pg-protocol\dist\index.js:11:42)
+    at Socket.emit (node:events:508:28)
+    at addChunk (node:internal/streams/readable:563:12)
+    at readableAddChunkPushByteMode (node:internal/streams/readable:514:3)
+[2026-04-20 20:44:59] ERROR: Erreur création dossier : notNull Violation: Dossier.reference cannot be null
+SequelizeValidationError: notNull Violation: Dossier.reference cannot be null
+    at InstanceValidator._validate (C:\Projects\saygoo-backend\node_modules\sequelize\lib\instance-validator.js:50:13)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async InstanceValidator._validateAndRunHooks (C:\Projects\saygoo-backend\node_modules\sequelize\lib\instance-validator.js:60:7)
+    at async InstanceValidator.validate (C:\Projects\saygoo-backend\node_modules\sequelize\lib\instance-validator.js:54:12)
+    at async model.save (C:\Projects\saygoo-backend\node_modules\sequelize\lib\model.js:2426:7)
+    at async Dossier.create (C:\Projects\saygoo-backend\node_modules\sequelize\lib\model.js:1362:12)
+    at async Object.creer (C:\Projects\saygoo-backend\src\modules\dedouanement\services\dossier.service.js:9:19)
+    at async creer (C:\Projects\saygoo-backend\src\modules\dedouanement\controllers\dossier.controller.js:8:21)
+[2026-04-21 11:04:23] ERROR: Erreur soumission cotation : Ce dossier ne peut pas recevoir de cotations pour le moment
+[2026-04-25 08:37:26] ERROR: Erreur passage commande : syntaxe en entrée invalide pour le type uuid : «  »
+Error
+    at Query.run (C:\Projects\saygoo-backend\node_modules\sequelize\lib\dialects\postgres\query.js:50:25)
+    at C:\Projects\saygoo-backend\node_modules\sequelize\lib\sequelize.js:315:28
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async PostgresQueryInterface.select (C:\Projects\saygoo-backend\node_modules\sequelize\lib\dialects\abstract\query-interface.js:407:12)
+    at async Produit.findAll (C:\Projects\saygoo-backend\node_modules\sequelize\lib\model.js:1140:21)
+    at async Produit.findOne (C:\Projects\saygoo-backend\node_modules\sequelize\lib\model.js:1240:12)
+    at async Produit.findByPk (C:\Projects\saygoo-backend\node_modules\sequelize\lib\model.js:1221:12)
+    at async Object.passerCommande (C:\Projects\saygoo-backend\src\modules\marketplace\services\commande.service.js:13:19)
+    at async passerCommande (C:\Projects\saygoo-backend\src\modules\marketplace\controllers\commande.controller.js:8:22)
+[2026-04-25 08:38:25] ERROR: Erreur passage commande : Produit non disponible
+[2026-04-26 19:04:57] ERROR: Erreur inscription : Un compte existe déjà avec cet email
+[2026-04-26 19:04:58] ERROR: Erreur connexion : Email ou mot de passe incorrect
+[2026-04-26 19:05:00] ERROR: Erreur connexion : Email ou mot de passe incorrect
+[2026-04-26 19:05:53] ERROR: Erreur simulation transport : Distance invalide
+[2026-04-26 19:10:26] ERROR: Erreur inscription : Un compte existe déjà avec cet email
+[2026-04-26 19:10:27] ERROR: Erreur connexion : Email ou mot de passe incorrect
+[2026-04-26 19:10:28] ERROR: Erreur connexion : Email ou mot de passe incorrect
+[2026-04-26 19:10:40] ERROR: Erreur simulation transport : Distance invalide
+[2026-04-28 21:11:23] ERROR: Erreur connexion : Email ou mot de passe incorrect
+[2026-05-22 19:44:51] ERROR: Erreur lors de l'initialisation de Sequelize :
+[2026-05-22 19:44:52] ERROR: Erreur connexion DB (sqlite). L'application continuera de fonctionner mais les appels API liés à la BDD échoueront :
+[2026-05-22 19:49:32] ERROR: Erreur lors de l'initialisation de Sequelize :
+[2026-05-22 19:49:33] ERROR: Erreur connexion DB (sqlite). L'application continuera de fonctionner mais les appels API liés à la BDD échoueront :
+[2026-05-22 19:50:56] ERROR: Erreur lors de l'initialisation de Sequelize :
+[2026-05-22 19:50:57] ERROR: Erreur connexion DB (sqlite). L'application continuera de fonctionner mais les appels API liés à la BDD échoueront :
+[2026-05-22 20:10:17] ERROR: Erreur lors de l'initialisation de Sequelize :
+[2026-05-22 20:10:17] ERROR: Erreur connexion DB (sqlite). L'application continuera de fonctionner mais les appels API liés à la BDD échoueront :
+[2026-05-22 20:18:18] ERROR: Erreur lors de l'initialisation de Sequelize :
+[2026-05-22 20:18:18] ERROR: Erreur connexion DB (sqlite). L'application continuera de fonctionner mais les appels API liés à la BDD échoueront :
+[2026-05-22 20:32:29] ERROR: Erreur lors de l'initialisation de Sequelize :
+[2026-05-22 20:32:30] ERROR: Erreur connexion DB (sqlite). L'application continuera de fonctionner mais les appels API liés à la BDD échoueront :
+[2026-06-01 19:09:01] ERROR: Erreur lors de l'initialisation de Sequelize :
+[2026-06-01 19:09:02] ERROR: Erreur connexion DB (sqlite). L'application continuera de fonctionner mais les appels API liés à la BDD échoueront :
+[2026-06-01 19:10:37] ERROR: Erreur lors de l'initialisation de Sequelize :
+[2026-06-01 19:10:38] ERROR: Erreur connexion DB (sqlite). L'application continuera de fonctionner mais les appels API liés à la BDD échoueront :

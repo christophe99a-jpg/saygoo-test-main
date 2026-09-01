@@ -1,0 +1,89 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum StatutPaiement {
+  EN_ATTENTE
+  EN_COURS
+  SUCCES
+  ECHEC
+  REMBOURSE
+  ANNULE
+}
+
+enum MethodePaiement {
+  MOBILE_MONEY
+  VIREMENT_BANCAIRE
+  ESPECES
+  CARTE_BANCAIRE
+  WAVE
+  FLOOZ
+  TMONEY
+}
+
+enum DeviseCode {
+  XOF
+  EUR
+  USD
+  GBP
+}
+
+model Paiement {
+  id              String          @id @default(uuid())
+  reference       String          @unique
+  factureId       String?
+  factureNum      String?
+  dossierId       String?
+  dossierRef      String?
+  clientId        String
+  clientNom       String
+  clientTel       String?
+  montant         Float
+  devise          DeviseCode      @default(XOF)
+  methode         MethodePaiement
+  statut          StatutPaiement  @default(EN_ATTENTE)
+  referenceExterne String?
+  numeroTransaction String?
+  notes           String?
+  agentId         String?
+  agentNom        String?
+  organisationId  String?
+  dateEcheance    DateTime?
+  datePaiement    DateTime?
+  webhookData     Json?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  tentatives      TentativePaiement[]
+
+  @@index([clientId])
+  @@index([factureId])
+  @@index([statut])
+  @@index([reference])
+}
+
+model TentativePaiement {
+  id          String   @id @default(uuid())
+  paiement    Paiement @relation(fields: [paiementId], references: [id], onDelete: Cascade)
+  paiementId  String
+  statut      String
+  message     String?
+  data        Json?
+  createdAt   DateTime @default(now())
+
+  @@index([paiementId])
+}
+
+model ConfigPaiement {
+  id          String   @id @default(uuid())
+  methode     String   @unique
+  isActive    Boolean  @default(true)
+  config      Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}

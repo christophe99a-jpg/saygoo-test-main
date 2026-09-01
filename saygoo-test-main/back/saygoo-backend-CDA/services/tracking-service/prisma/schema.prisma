@@ -1,0 +1,97 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum StatutLivraison {
+  EN_ATTENTE
+  ENLEVE
+  EN_TRANSIT
+  EN_LIVRAISON
+  LIVRE
+  ECHEC
+  RETOURNE
+}
+
+enum TypeVehicule {
+  CAMION
+  CAMIONNETTE
+  MOTO
+  BATEAU
+  AVION
+}
+
+model Livraison {
+  id              String          @id @default(uuid())
+  reference       String          @unique
+  dossierId       String?
+  dossierRef      String?
+  clientId        String
+  clientNom       String
+  clientTel       String?
+  clientAdresse   String?
+  transporteurId  String?
+  transporteurNom String?
+  transporteurTel String?
+  typeVehicule    TypeVehicule?
+  immatriculation String?
+  statut          StatutLivraison @default(EN_ATTENTE)
+  adresseDepart   String?
+  adresseArrivee  String?
+  latitudeDepart  Float?
+  longitudeDepart Float?
+  latitudeArrivee Float?
+  longitudeArrivee Float?
+  latitudeActuelle Float?
+  longitudeActuelle Float?
+  dateEnlevement  DateTime?
+  dateLivraisonPrevue DateTime?
+  dateLivraisonReelle DateTime?
+  preuveLivraison String?
+  notes           String?
+  organisationId  String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  positions       PositionGPS[]
+  historique      HistoriqueLivraison[]
+
+  @@index([clientId])
+  @@index([dossierId])
+  @@index([statut])
+  @@index([reference])
+}
+
+model PositionGPS {
+  id          String    @id @default(uuid())
+  livraison   Livraison @relation(fields: [livraisonId], references: [id], onDelete: Cascade)
+  livraisonId String
+  latitude    Float
+  longitude   Float
+  vitesse     Float?
+  cap         Float?
+  precision   Float?
+  createdAt   DateTime  @default(now())
+
+  @@index([livraisonId])
+  @@index([createdAt])
+}
+
+model HistoriqueLivraison {
+  id           String          @id @default(uuid())
+  livraison    Livraison       @relation(fields: [livraisonId], references: [id], onDelete: Cascade)
+  livraisonId  String
+  statut       StatutLivraison
+  description  String?
+  userId       String?
+  userNom      String?
+  latitude     Float?
+  longitude    Float?
+  createdAt    DateTime        @default(now())
+
+  @@index([livraisonId])
+}
