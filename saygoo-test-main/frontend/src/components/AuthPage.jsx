@@ -7,10 +7,14 @@ const AuthPage = ({ initialMode = 'login', onSubmit }) => {
 
   // Signup State
   const [signupData, setSignupData] = useState({
+    fullName: '',
     companyName: '',
     email: '',
     password: '',
   });
+
+  // Message de validation affiché sous le formulaire
+  const [erreurSaisie, setErreurSaisie] = useState(null);
 
   // Login State
   const [loginData, setLoginData] = useState({
@@ -23,17 +27,39 @@ const AuthPage = ({ initialMode = 'login', onSubmit }) => {
   }, [initialMode]);
 
   const handleSignup = () => {
+    const { fullName, companyName, email, password } = signupData;
+
+    if (!fullName.trim() || !email.trim() || !password) {
+      setErreurSaisie('Nom complet, email et mot de passe sont obligatoires.');
+      return;
+    }
+    if (!fullName.trim().includes(' ')) {
+      setErreurSaisie('Saisissez le prénom et le nom, séparés par un espace.');
+      return;
+    }
+    if (password.length < 8) {
+      setErreurSaisie('Le mot de passe doit contenir au moins 8 caractères.');
+      return;
+    }
+
+    setErreurSaisie(null);
     onSubmit?.({
       mode: 'signup',
-      fullName: signupData.companyName,
-      companyName: signupData.companyName,
-      email: signupData.email,
-      password: signupData.password,
+      fullName: fullName.trim(),
+      companyName: companyName.trim(),
+      email: email.trim(),
+      password,
       role: selectedRole,
     });
   };
 
   const handleLogin = () => {
+    if (!loginData.email.trim() || !loginData.password) {
+      setErreurSaisie('Email et mot de passe sont obligatoires.');
+      return;
+    }
+
+    setErreurSaisie(null);
     onSubmit?.({
       mode: 'login',
       fullName: loginData.email || 'Utilisateur SAYGOO',
@@ -75,7 +101,14 @@ const AuthPage = ({ initialMode = 'login', onSubmit }) => {
           <div className="w-full space-y-4">
             <input
               type="text"
-              placeholder="Nom de l'entreprise"
+              placeholder="Prénom et nom"
+              value={signupData.fullName}
+              onChange={(event) => setSignupData((prev) => ({ ...prev, fullName: event.target.value }))}
+              className="w-full p-4 bg-gray-50 rounded-2xl outline-none focus:ring-2 focus:ring-saygoo-brown transition-all text-sm font-medium"
+            />
+            <input
+              type="text"
+              placeholder="Nom de l'entreprise (facultatif)"
               value={signupData.companyName}
               onChange={(event) => setSignupData((prev) => ({ ...prev, companyName: event.target.value }))}
               className="w-full p-4 bg-gray-50 rounded-2xl outline-none focus:ring-2 focus:ring-saygoo-brown transition-all text-sm font-medium"
@@ -95,6 +128,12 @@ const AuthPage = ({ initialMode = 'login', onSubmit }) => {
               className="w-full p-4 bg-gray-50 rounded-2xl outline-none focus:ring-2 focus:ring-saygoo-brown transition-all text-sm font-medium"
             />
           </div>
+          {erreurSaisie && isSignup && (
+            <p className="mt-4 w-full rounded-xl bg-red-50 px-4 py-3 text-center text-xs font-bold text-red-600">
+              {erreurSaisie}
+            </p>
+          )}
+
           <button
             onClick={handleSignup}
             className="mt-6 bg-saygoo-orange text-white px-14 py-4 rounded-full font-black shadow-lg hover:scale-105 transition-all uppercase tracking-widest text-xs"
@@ -144,6 +183,13 @@ const AuthPage = ({ initialMode = 'login', onSubmit }) => {
             />
           </div>
           <p className="text-xs font-bold text-gray-400 mt-4 cursor-pointer hover:text-saygoo-orange uppercase tracking-widest">Mot de passe oublié ?</p>
+
+          {erreurSaisie && !isSignup && (
+            <p className="mt-4 w-full rounded-xl bg-red-50 px-4 py-3 text-center text-xs font-bold text-red-600">
+              {erreurSaisie}
+            </p>
+          )}
+
           <button
             onClick={handleLogin}
             className="mt-6 bg-saygoo-brown text-white px-14 py-4 rounded-full font-black shadow-lg hover:scale-105 transition-all uppercase tracking-widest text-xs"

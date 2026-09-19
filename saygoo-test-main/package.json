@@ -18,6 +18,7 @@
     "test:health": "jest tests/unit/health.test.js --runInBand"
   },
   "dependencies": {
+    "@prisma/client": "^5.22.0",
     "axios": "^1.6.8",
     "bcryptjs": "^2.4.3",
     "bullmq": "^5.4.2",
@@ -43,6 +44,7 @@
     "concurrently": "^10.0.3",
     "jest": "^29.7.0",
     "nodemon": "^3.1.0",
+    "prisma": "^5.22.0",
     "supertest": "^6.3.4"
   }
 }

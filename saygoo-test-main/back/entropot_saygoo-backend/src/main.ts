@@ -1,3 +1,5 @@
+// Chargé en tout premier : process.env doit être peuplé avant la lecture de PORT.
+import 'dotenv/config';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
@@ -25,8 +27,9 @@ async function bootstrap() {
   // CORS pour le frontend
   app.enableCors();
 
-  await app.listen(process.env.PORT || 3000);
-  console.log(`🚀 SAYGOO Backend démarré sur http://localhost:3000`);
-  console.log(`📚 Documentation API : http://localhost:3000/api/docs`);
+  const port = process.env.PORT || 3008;
+  await app.listen(port);
+  console.log(`🚀 SAYGOO Entrepôt démarré sur http://localhost:${port}`);
+  console.log(`📚 Documentation API : http://localhost:${port}/api/docs`);
 }
 bootstrap();

@@ -1,33 +1,53 @@
 import { lazy } from 'react';
 
 const CdaBoard = lazy(() => import('../components/dashboard/CdaBoard'));
+const DossiersCDA = lazy(() => import('../components/dashboard/DossiersCDA'));
+const FacturationCDA = lazy(() => import('../components/dashboard/FacturationCDA'));
+const AdministrationComptes = lazy(() => import('../components/dashboard/AdministrationComptes'));
+const CockpitEntrepot = lazy(() => import('../components/dashboard/CockpitEntrepot'));
+const CockpitConsignataire = lazy(() => import('../components/dashboard/CockpitConsignataire'));
 const ConsignateurBoard = lazy(() => import('../components/dashboard/ConsignateurBoard'));
 const TransporteurBoard = lazy(() => import('../components/dashboard/TransporteurBoard'));
 const ProfileOperateur = lazy(() => import('../components/dashboard/ProfileOperateur'));
 
 export const ROLE_SCREENS = {
   ROLE_CDA: {
-    component: CdaBoard,
+    component: DossiersCDA,
+    // Chaque focus peut pointer vers un composant dédié ; à défaut, `component` est utilisé.
+    composantsParFocus: {
+      Dossiers: DossiersCDA,
+      Facturation: FacturationCDA,
+      Administration: AdministrationComptes,
+      'Vue d\u2019ensemble': CdaBoard,
+    },
     subtitle: 'Centre de Dédouanement et Agréage',
-    focusModes: ['Dédouanement', 'Contrôle', 'Portefeuille'],
+    focusModes: ['Dossiers', 'Facturation', 'Administration', 'Vue d\u2019ensemble', 'Portefeuille'],
+    // NOTE : ces indicateurs sont encore des valeurs de maquette. Les chiffres
+    // réels sont ceux affichés dans l'onglet « Dossiers », alimenté par l'API.
     heroMetrics: [
-      { label: 'Dossiers en attente', value: '12', detail: '+3 depuis hier' },
-      { label: 'Dédouanés ce jour', value: '45', detail: 'Objectif: 50' },
-      { label: 'Valeur totale', value: '1.2M', detail: 'XOF' }
+      { label: 'Dossiers en attente', value: '—', detail: 'Voir onglet Dossiers' },
+      { label: 'Dédouanés ce jour', value: '—', detail: 'Voir onglet Dossiers' },
+      { label: 'Valeur totale', value: '—', detail: 'XOF' }
     ],
     stats: [
-      { label: 'Temps moyen', value: '2.5h', detail: '-15min' },
-      { label: 'Anomalies', value: '2', detail: 'Alerte' }
+      { label: 'Temps moyen', value: '—', detail: 'Non calculé' },
+      { label: 'Anomalies', value: '—', detail: 'Non calculé' }
     ]
   },
   ROLE_CONSIGNATEUR: {
-    component: ConsignateurBoard,
+    component: CockpitConsignataire,
+    composantsParFocus: {
+      Cockpit: CockpitConsignataire,
+      'Vue d\u2019ensemble': ConsignateurBoard,
+    },
     subtitle: 'Gestion Consignataire',
-    focusModes: ['Arrivages', 'Livraisons', 'Portefeuille'],
+    focusModes: ['Cockpit', 'Vue d\u2019ensemble', 'Portefeuille'],
+    // NOTE : indicateurs de maquette. Les chiffres réels sont dans le cockpit,
+    // alimenté par le service Consignataire.
     heroMetrics: [
-      { label: 'Navires en approche', value: '4', detail: 'Dans les 48h' },
-      { label: 'Conteneurs au port', value: '120', detail: '80% capacité' },
-      { label: 'Frais de surestarie', value: '0', detail: 'Optimal' }
+      { label: 'Navires en approche', value: '—', detail: 'Voir cockpit' },
+      { label: 'Conteneurs au port', value: '—', detail: 'Voir cockpit' },
+      { label: 'Frais de surestarie', value: '—', detail: 'Voir cockpit' }
     ],
     stats: [
       { label: 'Temps de rotation', value: '4j', detail: 'Stable' },
@@ -63,17 +83,22 @@ export const ROLE_SCREENS = {
     ]
   },
   ROLE_ENTREPOSEUR: {
-    component: ProfileOperateur, // Fallback en attendant un composant spécifique Entreposeur
+    component: CockpitEntrepot,
+    composantsParFocus: {
+      Cockpit: CockpitEntrepot,
+    },
     subtitle: 'Gestion d\'Entrepôt',
-    focusModes: ['Stockage', 'Mouvements', 'Portefeuille'],
+    focusModes: ['Cockpit', 'Portefeuille'],
+    // NOTE : indicateurs de maquette. Les chiffres réels sont dans le cockpit,
+    // alimenté par le service Entrepôt.
     heroMetrics: [
-      { label: 'Taux d\'occupation', value: '75%', detail: 'Optimal' },
-      { label: 'Entrées du jour', value: '25', detail: 'Palettes' },
-      { label: 'Sorties du jour', value: '18', detail: 'Palettes' }
+      { label: 'Taux d\'occupation', value: '—', detail: 'Voir cockpit' },
+      { label: 'Entrées du jour', value: '—', detail: 'Voir cockpit' },
+      { label: 'Sorties du jour', value: '—', detail: 'Voir cockpit' }
     ],
     stats: [
-      { label: 'Alertes de stock', value: '2', detail: 'Niveau bas' },
-      { label: 'Anomalies', value: '0', detail: 'RAS' }
+      { label: 'Alertes de stock', value: '—', detail: 'Voir cockpit' },
+      { label: 'Anomalies', value: '—', detail: 'Voir cockpit' }
     ]
   }
 };

@@ -2,7 +2,7 @@ import React, { useState, Suspense, lazy } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContextF';
 import { DashboardShell } from '../components/dashboard/DashboardUI';
-import { Package2, Wallet, Search, BellRing, Settings, Star, AlertCircle, TrendingUp, HelpCircle, User } from 'lucide-react';
+import { Package2, Wallet, Search, BellRing, Settings, Star, AlertCircle, TrendingUp, HelpCircle, User, ListChecks, Car, Warehouse } from 'lucide-react';
 const TransportCostSimulator = lazy(() => import('../components/simulateurs/TransportCostSimulator'));
 const ProfileOperateur = lazy(() => import('../components/dashboard/ProfileOperateur'));
 const WalletBoard = lazy(() => import('../components/dashboard/WalletBoard'));
@@ -10,6 +10,9 @@ import SidebarButton from '../components/dashboard/client/SidebarButton';
 const ZoneCentrale = lazy(() => import('../components/dashboard/client/ZoneCentrale'));
 const MarketplaceBoard = lazy(() => import('../components/dashboard/client/MarketplaceBoard'));
 const CommandesBoard = lazy(() => import('../components/dashboard/client/CommandesBoard'));
+const SuiviOperateur = lazy(() => import('../components/dashboard/SuiviOperateur'));
+const CatalogueVehicules = lazy(() => import('../components/dashboard/CatalogueVehicules'));
+const DemandeStockage = lazy(() => import('../components/dashboard/DemandeStockage'));
 
 /**
  * 5 Zones:
@@ -53,6 +56,9 @@ export default function Dashboard() {
         {/* Ligne 2: Menu latéral */}
         <aside className="w-full lg:w-64 shrink-0 flex flex-col gap-2">
           <SidebarButton active={activeTab === 'accueil'} onClick={() => setActiveTab('accueil')} icon={TrendingUp} label="Dashboard" />
+          <SidebarButton active={activeTab === 'suivi'} onClick={() => setActiveTab('suivi')} icon={ListChecks} label="Suivi de mes demandes" />
+          <SidebarButton active={activeTab === 'vehicules'} onClick={() => setActiveTab('vehicules')} icon={Car} label="Parc à véhicules" />
+          <SidebarButton active={activeTab === 'stockage'} onClick={() => setActiveTab('stockage')} icon={Warehouse} label="Stockage sous douane" />
           <SidebarButton active={activeTab === 'marketplace'} onClick={() => setActiveTab('marketplace')} icon={Package2} label="Marketplace" />
           <SidebarButton active={activeTab === 'commandes'} onClick={() => setActiveTab('commandes')} icon={BellRing} label="Mes Commandes" />
           <SidebarButton active={activeTab === 'transport'} onClick={() => setActiveTab('transport')} icon={Settings} label="Cotations" />
@@ -89,7 +95,22 @@ export default function Dashboard() {
                 <CommandesBoard />
               </div>
             )}
-            {activeTab !== 'accueil' && activeTab !== 'transport' && activeTab !== 'profil' && activeTab !== 'wallet' && activeTab !== 'marketplace' && activeTab !== 'commandes' && (
+            {activeTab === 'suivi' && (
+              <div className="w-full">
+                <SuiviOperateur />
+              </div>
+            )}
+            {activeTab === 'vehicules' && (
+              <div className="w-full">
+                <CatalogueVehicules />
+              </div>
+            )}
+            {activeTab === 'stockage' && (
+              <div className="w-full">
+                <DemandeStockage />
+              </div>
+            )}
+            {!['accueil', 'transport', 'profil', 'wallet', 'marketplace', 'commandes', 'suivi', 'vehicules', 'stockage'].includes(activeTab) && (
                <div className="flex-1 flex items-center justify-center rounded-2xl border border-white/10 bg-black/20 p-12 text-center text-white/50 backdrop-blur-md">
                  Module en cours de developpement.
                </div>

@@ -2,6 +2,16 @@
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import bgWave from '../assets/saygo-wave.jpg';
+import { OperateurAPI, FichierAPI } from '../lib/apiF';
+
+// Les libellés affichés doivent être traduits vers les valeurs attendues
+// par le service de dédouanement (IMPORT / EXPORT / TRANSIT).
+const OPERATION_VERS_BACKEND = {
+  Importation: 'IMPORT',
+  Exportation: 'EXPORT',
+  'Transit ZLECAF': 'TRANSIT',
+  Dedouanement: 'IMPORT',
+};
 
 const EMISSION_FACTORS = {
   Routier: 0.08,
@@ -12,17 +22,22 @@ const EMISSION_FACTORS = {
 const CreateDossier = () => {
   const [step, setStep] = useState(1);
   const [formData, setFormData] = useState({
-    // Point 1 & 2
+    // Profil & type d'opération
     raisonSociale: '',
-    paysClient: '',
-    typeOperation: '',
-    // Point 3 & 4
     paysOrigine: '',
-    poids: 0,
-    distance: 0,
-    modeTransport: 'Routier',
-    ecoMode: false,
+    portChargement: '',
+    paysClient: '',
+    valeurCaf: '',
+    typeOperation: '',
+    // Logistique
     natureMarchandise: '',
+    codeHS: '',
+    nombreConteneurs: '',
+    modeTransport: 'Routier',
+    poids: 0,
+    lienGeolocalisation: '',
+    distance: 0,
+    ecoMode: false,
     co2Estime: '',
     // Point 5 & 7
     modePaiement: 'Virement',
@@ -34,8 +49,105 @@ const CreateDossier = () => {
     referenceDDC: '',
   });
 
+  const [envoiEnCours, setEnvoiEnCours] = useState(false);
+  const [erreurEnvoi, setErreurEnvoi] = useState(null);
+  const [dossierCree, setDossierCree] = useState(null);
+  const [envoiFichiers, setEnvoiFichiers] = useState(false);
+
   const nextStep = () => setStep((s) => Math.min(4, s + 1));
   const prevStep = () => setStep((s) => Math.max(1, s - 1));
+
+  const soumettreDossier = async () => {
+    if (!formData.typeOperation) {
+      setErreurEnvoi("Sélectionnez la nature de l'opération à l'étape 1.");
+      setStep(1);
+      return;
+    }
+    if (!formData.raisonSociale?.trim()) {
+      setErreurEnvoi('Renseignez la raison sociale à l\'étape 1.');
+      setStep(1);
+      return;
+    }
+    if (!formData.valeurCaf || Number(formData.valeurCaf) <= 0) {
+      setErreurEnvoi('La valeur CAF est obligatoire : elle sert de base au calcul des droits.');
+      setStep(1);
+      return;
+    }
+    if (!formData.natureMarchandise?.trim()) {
+      setErreurEnvoi('Renseignez la nature de la marchandise à l\'étape 2.');
+      setStep(2);
+      return;
+    }
+
+    setEnvoiEnCours(true);
+    setErreurEnvoi(null);
+
+    try {
+      // Chaque donnée a désormais sa colonne côté back-end : les dossiers
+      // restent filtrables par code SH, mode de transport ou service GMS.
+      const reponse = await OperateurAPI.creerDedouanement({
+        typeOperation: OPERATION_VERS_BACKEND[formData.typeOperation] || 'IMPORT',
+        natureMarchandise: formData.natureMarchandise.trim(),
+
+        // Profil
+        paysOrigine: formData.paysOrigine || undefined,
+        portChargement: formData.portChargement || undefined,
+        destinationFinale: formData.paysClient || undefined,
+        // CAF = Coût, Assurance, Fret — équivalent du CIF.
+        valeurCaf: Number(formData.valeurCaf) || undefined,
+
+        // Logistique
+        hsCode: formData.codeHS || undefined,
+        nombreConteneurs: Number(formData.nombreConteneurs) || undefined,
+        modeTransport: formData.modeTransport || undefined,
+        poidsBrut: Number(formData.poids) || undefined,
+        distanceKm: Number(formData.distance) || undefined,
+        lienGeolocalisation: formData.lienGeolocalisation || undefined,
+        co2EstimeKg: Number(formData.co2Estime) || undefined,
+
+        // Finances et services
+        modePaiement: formData.modePaiement || undefined,
+        paiementFractionne: Boolean(formData.paiementFractionne),
+        servicesGMS: formData.servicesGMS?.length ? formData.servicesGMS : undefined,
+      });
+
+      const dossier = reponse.data?.dossier || null;
+      setDossierCree(dossier);
+
+      // Les pièces jointes ne peuvent être rattachées qu'une fois le dossier
+      // créé : elles sont envoyées ensuite, dossier par dossier.
+      if (dossier?.id && formData.documents?.length) {
+        setEnvoiFichiers(true);
+        const echecs = [];
+
+        for (const doc of formData.documents) {
+          try {
+            // Le fichier lui-même est transmis en multipart et écrit sur le
+            // serveur ; la fiche du document est créée dans la foulée.
+            await FichierAPI.televerser(dossier.id, doc.type, doc.fichier);
+          } catch (errFichier) {
+            echecs.push(`${doc.type} (${errFichier.message})`);
+          }
+        }
+
+        setEnvoiFichiers(false);
+
+        if (echecs.length) {
+          setErreurEnvoi(
+            `Dossier créé, mais ces pièces n'ont pas pu être envoyées : ${echecs.join(' ; ')}. Vous pourrez les ajouter depuis le suivi.`,
+          );
+        }
+      }
+    } catch (err) {
+      setErreurEnvoi(
+        err.status === 503
+          ? 'Le service de dédouanement est momentanément indisponible. Réessayez dans quelques instants.'
+          : err.message || "L'envoi du dossier a échoué."
+      );
+    } finally {
+      setEnvoiEnCours(false);
+    }
+  };
 
   const progress = useMemo(() => (step / 4) * 100, [step]);
   const pageVariants = {
@@ -120,6 +232,31 @@ const CreateDossier = () => {
           {step === 4 && <StepDocumentsValidation data={formData} setData={setFormData} />}
 
           {/* NAVIGATION */}
+        {erreurEnvoi && (
+          <div className="mx-8 mb-4 rounded-2xl border border-red-200 bg-red-50 px-5 py-4">
+            <p className="text-xs font-black uppercase text-red-600">{erreurEnvoi}</p>
+          </div>
+        )}
+
+        {dossierCree && (
+          <div className="mx-8 mb-4 rounded-[30px] bg-[#2A1A10] p-6 text-center">
+            <p className="mb-2 text-[10px] font-black uppercase tracking-[0.3em] text-[#F36F21]">
+              Dossier transmis au CDA
+            </p>
+            <h2 className="text-3xl font-black italic tracking-tighter text-white">
+              {dossierCree.reference}
+            </h2>
+            <p className="mt-3 text-[11px] text-white/60">
+              Suivez son avancement depuis « Suivi de mes demandes ».
+            </p>
+            <Link
+              to="/dashboard/client"
+              className="mt-5 inline-block rounded-full bg-[#F36F21] px-8 py-3 text-[10px] font-black uppercase tracking-widest text-white"
+            >
+              Retour au tableau de bord
+            </Link>
+          </div>
+        )}
           <div className="mt-12 flex justify-between border-t pt-8">
             {step > 1 && (
               <button onClick={prevStep} className="text-[#2A1A10] font-black uppercase text-xs tracking-widest hover:text-[#F36F21]">
@@ -127,10 +264,19 @@ const CreateDossier = () => {
               </button>
             )}
             <button
-              onClick={step === 4 ? () => console.log('Final Submit', { ...formData }) : nextStep}
+              onClick={step === 4 ? soumettreDossier : nextStep}
+              disabled={envoiEnCours || Boolean(dossierCree)}
               className="ml-auto bg-[#F36F21] text-white px-10 py-4 rounded-full font-black uppercase text-xs tracking-widest shadow-lg hover:bg-[#2A1A10] transition-all"
             >
-              {step === 4 ? 'Soumettre le Dossier' : 'Suivant →'}
+              {step === 4
+                ? (envoiFichiers
+                    ? 'Envoi des pièces jointes…'
+                    : envoiEnCours
+                      ? 'Envoi en cours…'
+                      : dossierCree
+                        ? 'Dossier envoyé ✓'
+                        : 'Soumettre le Dossier')
+                : 'Suivant →'}
             </button>
           </div>
         </motion.div>
@@ -156,13 +302,50 @@ const StepIdentification = ({ data, setData }) => (
         />
       </div>
       <div className="flex flex-col gap-2">
-        <label className="text-[10px] font-black uppercase text-gray-400">Pays du Client</label>
+        <label className="text-[10px] font-black uppercase text-gray-400">Pays d'origine</label>
         <input
           type="text"
+          placeholder="Chine, Inde, Brésil…"
+          className="p-4 bg-gray-50 rounded-2xl border-none outline-none focus:ring-2 focus:ring-[#F36F21]"
+          value={data.paysOrigine || ''}
+          onChange={(e) => setData({ ...data, paysOrigine: e.target.value })}
+        />
+      </div>
+      <div className="flex flex-col gap-2">
+        <label className="text-[10px] font-black uppercase text-gray-400">Port de chargement</label>
+        <input
+          type="text"
+          placeholder="Shanghai, Anvers…"
+          className="p-4 bg-gray-50 rounded-2xl border-none outline-none focus:ring-2 focus:ring-[#F36F21]"
+          value={data.portChargement || ''}
+          onChange={(e) => setData({ ...data, portChargement: e.target.value })}
+        />
+      </div>
+      <div className="flex flex-col gap-2">
+        <label className="text-[10px] font-black uppercase text-gray-400">Pays de destination</label>
+        <input
+          type="text"
+          placeholder="Togo"
           className="p-4 bg-gray-50 rounded-2xl border-none outline-none focus:ring-2 focus:ring-[#F36F21]"
           value={data.paysClient || ''}
           onChange={(e) => setData({ ...data, paysClient: e.target.value })}
         />
+      </div>
+      <div className="flex flex-col gap-2">
+        <label className="text-[10px] font-black uppercase text-gray-400">
+          Valeur CAF (XOF)
+        </label>
+        <input
+          type="number"
+          min="0"
+          placeholder="14 800 000"
+          className="p-4 bg-gray-50 rounded-2xl border-none outline-none focus:ring-2 focus:ring-[#F36F21]"
+          value={data.valeurCaf || ''}
+          onChange={(e) => setData({ ...data, valeurCaf: e.target.value })}
+        />
+        <p className="text-[10px] text-gray-400">
+          Coût, Assurance et Fret — base de calcul des droits de douane.
+        </p>
       </div>
     </div>
 
@@ -200,13 +383,17 @@ const StepLogistique = ({ data, setData }) => {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div className="flex flex-col gap-2">
-          <label className="text-[10px] font-black uppercase text-gray-400">Pays d'origine</label>
+          <label className="text-[10px] font-black uppercase text-gray-400">Code SH (HS)</label>
           <input
             type="text"
-            className="p-4 bg-gray-50 rounded-2xl outline-none focus:ring-2 focus:ring-[#F36F21]"
-            value={data.paysOrigine}
-            onChange={(e) => setData({ ...data, paysOrigine: e.target.value })}
+            placeholder="8704.23"
+            className="p-4 bg-gray-50 rounded-2xl border-none outline-none focus:ring-2 focus:ring-[#F36F21]"
+            value={data.codeHS || ''}
+            onChange={(e) => setData({ ...data, codeHS: e.target.value })}
           />
+          <p className="text-[10px] text-gray-400">
+            Code du Système Harmonisé — détermine le taux de droits applicable.
+          </p>
         </div>
 
         <div className="flex flex-col gap-2">
@@ -253,6 +440,34 @@ const StepLogistique = ({ data, setData }) => {
             value={data.distance}
             onChange={(e) => setData({ ...data, distance: e.target.value })}
           />
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <label className="text-[10px] font-black uppercase text-gray-400">Nombre de conteneurs</label>
+          <input
+            type="number"
+            min="0"
+            placeholder="2"
+            className="p-4 bg-gray-50 rounded-2xl border-none outline-none focus:ring-2 focus:ring-[#F36F21]"
+            value={data.nombreConteneurs || ''}
+            onChange={(e) => setData({ ...data, nombreConteneurs: e.target.value })}
+          />
+        </div>
+
+        <div className="flex flex-col gap-2 md:col-span-2">
+          <label className="text-[10px] font-black uppercase text-gray-400">
+            Lien géolocalisé du lieu de destination
+          </label>
+          <input
+            type="url"
+            placeholder="https://maps.google.com/?q=6.1319,1.2228"
+            className="p-4 bg-gray-50 rounded-2xl border-none outline-none focus:ring-2 focus:ring-[#F36F21]"
+            value={data.lienGeolocalisation || ''}
+            onChange={(e) => setData({ ...data, lienGeolocalisation: e.target.value })}
+          />
+          <p className="text-[10px] text-gray-400">
+            Lien Google Maps ou coordonnées GPS du point de livraison final.
+          </p>
         </div>
       </div>
 
@@ -375,16 +590,49 @@ const StepDocumentsValidation = ({ data, setData }) => {
     'Liste de colisage',
   ];
 
-  const generateDDC = () => {
-    const year = new Date().getFullYear().toString().slice(-2);
-    const random = Math.floor(1000000 + Math.random() * 9000000);
-    return `DDC${year}${random}`;
+  // La référence du dossier est attribuée par le back-end à la soumission :
+  // aucune référence n'est inventée côté navigateur.
+
+  // Formats acceptés et taille maximale, alignés sur ce qu'attend le service
+  // documentaire. Refuser tôt évite un envoi qui échouerait côté serveur.
+  const FORMATS_ACCEPTES = '.pdf,.jpg,.jpeg,.png,.doc,.docx';
+  const TAILLE_MAX_MO = 10;
+
+  const [erreurFichier, setErreurFichier] = useState(null);
+
+  const handleFileUpload = (docName, fichier) => {
+    if (!fichier) return;
+
+    const extension = `.${fichier.name.split('.').pop().toLowerCase()}`;
+    if (!FORMATS_ACCEPTES.split(',').includes(extension)) {
+      setErreurFichier(`Format non accepté (${extension}). Formats autorisés : PDF, JPG, PNG, DOC.`);
+      return;
+    }
+    if (fichier.size > TAILLE_MAX_MO * 1024 * 1024) {
+      setErreurFichier(`« ${fichier.name} » dépasse ${TAILLE_MAX_MO} Mo.`);
+      return;
+    }
+
+    setErreurFichier(null);
+
+    // On conserve le fichier lui-même : il sera transmis après création du
+    // dossier, une fois que le back-end aura attribué une référence.
+    const autres = (data.documents || []).filter((d) => d.type !== docName);
+    setData({
+      ...data,
+      documents: [
+        ...autres,
+        { type: docName, nom: fichier.name, taille: fichier.size, fichier },
+      ],
+    });
   };
 
-  const handleFileUpload = (docName) => {
-    const newDocs = [...(data.documents || []), docName];
-    setData({ ...data, documents: newDocs, referenceDDC: generateDDC() });
+  const retirerFichier = (docName) => {
+    setData({ ...data, documents: (data.documents || []).filter((d) => d.type !== docName) });
+    setErreurFichier(null);
   };
+
+  const documentCharge = (docName) => (data.documents || []).find((d) => d.type === docName);
 
   return (
     <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }}>
@@ -400,16 +648,59 @@ const StepDocumentsValidation = ({ data, setData }) => {
               key={index}
               className="p-4 border-2 border-dashed border-gray-100 rounded-2xl flex items-center justify-between hover:border-[#F36F21]/30 transition-all"
             >
-              <span className="text-[10px] font-bold text-gray-600 uppercase">{doc}</span>
-              <button
-                onClick={() => handleFileUpload(doc)}
-                className={`text-[10px] font-black px-3 py-1 rounded-lg uppercase ${data.documents?.includes(doc) ? 'bg-green-100 text-green-600' : 'bg-[#2A1A10] text-white'}`}
-              >
-                {data.documents?.includes(doc) ? 'Charge ✓' : 'Uploader'}
-              </button>
+              <div className="min-w-0 flex-1">
+                <span className="text-[10px] font-bold text-gray-600 uppercase">{doc}</span>
+                {documentCharge(doc) && (
+                  <p className="mt-0.5 truncate text-[10px] text-gray-400">
+                    {documentCharge(doc).nom} · {(documentCharge(doc).taille / 1024).toFixed(0)} Ko
+                  </p>
+                )}
+              </div>
+
+              {documentCharge(doc) ? (
+                <div className="flex shrink-0 items-center gap-2">
+                  <span className="rounded-lg bg-green-100 px-3 py-1 text-[10px] font-black uppercase text-green-600">
+                    Chargé ✓
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => retirerFichier(doc)}
+                    className="rounded-lg px-2 py-1 text-[10px] font-black uppercase text-gray-400 hover:text-red-500"
+                    title="Retirer ce fichier"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ) : (
+                // Le label déclenche l'input masqué : c'est lui qui ouvre
+                // l'explorateur de fichiers du téléphone ou de l'ordinateur.
+                <label className="shrink-0 cursor-pointer rounded-lg bg-[#2A1A10] px-3 py-1 text-[10px] font-black uppercase text-white hover:bg-[#F36F21]">
+                  Uploader
+                  <input
+                    type="file"
+                    accept={FORMATS_ACCEPTES}
+                    className="hidden"
+                    onChange={(e) => {
+                      handleFileUpload(doc, e.target.files?.[0]);
+                      // Réinitialise pour permettre de re-sélectionner le même fichier.
+                      e.target.value = '';
+                    }}
+                  />
+                </label>
+              )}
             </div>
           ))}
         </div>
+
+        {erreurFichier && (
+          <p className="rounded-xl bg-red-50 px-4 py-3 text-[11px] font-bold text-red-600">
+            {erreurFichier}
+          </p>
+        )}
+
+        <p className="text-[10px] text-gray-400">
+          Formats acceptés : PDF, JPG, PNG, DOC — {TAILLE_MAX_MO} Mo maximum par fichier.
+        </p>
       </div>
 
       <div className="bg-gray-50 p-6 rounded-[30px] border border-gray-100">
@@ -431,14 +722,15 @@ const StepDocumentsValidation = ({ data, setData }) => {
         </div>
       </div>
 
-      {signed && data.referenceDDC && (
+      {signed && (
         <motion.div
           initial={{ scale: 0.9, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
-          className="mt-8 p-6 bg-[#2A1A10] rounded-[30px] text-center"
+          className="mt-8 rounded-[30px] bg-[#2A1A10] p-6 text-center"
         >
-          <p className="text-[10px] font-black text-[#F36F21] uppercase tracking-[0.3em] mb-2">Reference Generee</p>
-          <h2 className="text-3xl font-black text-white tracking-tighter italic">{data.referenceDDC}</h2>
+          <p className="text-[11px] font-bold text-white/70">
+            Cliquez sur « Soumettre le Dossier » pour transmettre votre demande au CDA.
+          </p>
         </motion.div>
       )}
     </motion.div>

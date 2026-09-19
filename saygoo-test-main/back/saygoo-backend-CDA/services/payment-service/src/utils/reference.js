@@ -19,3 +19,23 @@ const generateReference = async () => {
 };
 
 module.exports = { generateReference };
+
+/**
+ * Génère une référence unique pour une instruction de paiement (CLN)
+ * Format : INS-2025-000001
+ */
+const generateInstructionReference = async () => {
+  const year = new Date().getFullYear();
+  const prefix = `INS-${year}-`;
+
+  const count = await prisma.instructionPaiement.count({
+    where: {
+      reference: { startsWith: prefix }
+    }
+  });
+
+  const numero = String(count + 1).padStart(6, '0');
+  return `${prefix}${numero}`;
+};
+
+module.exports = { generateReference, generateInstructionReference };

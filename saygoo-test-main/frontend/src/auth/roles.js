@@ -71,7 +71,16 @@ export const ROLE_DEFINITIONS_BY_KEY = Object.fromEntries(
 );
 
 export function getRoleDefinition(roleKey) {
-  return ROLE_DEFINITIONS_BY_KEY[roleKey] ?? ROLE_DEFINITIONS_BY_KEY.ROLE_CLIENT;
+  const definition = ROLE_DEFINITIONS_BY_KEY[roleKey];
+
+  if (!definition) {
+    // Un repli silencieux enverrait l'utilisateur vers un espace qui n'est pas
+    // le sien ; on le signale pour que l'anomalie soit visible en développement.
+    console.warn(`[roles] Rôle inconnu : ${roleKey} — repli sur ROLE_CLIENT.`);
+    return ROLE_DEFINITIONS_BY_KEY.ROLE_CLIENT;
+  }
+
+  return definition;
 }
 
 export function getDashboardPath(roleKey) {
@@ -79,3 +88,32 @@ export function getDashboardPath(roleKey) {
   return `/dashboard/${role.slug}`;
 }
 
+// ── Correspondance avec les rôles du back-end SAYGOO ────────────────────────────
+// Le back-end (auth-service) émet ces valeurs dans le champ `role` du JWT.
+// Toute modification ici doit rester alignée avec l'enum Role du schéma Prisma.
+export const ROLE_FRONT_VERS_BACK = {
+  ROLE_CDA: 'CDA',
+  ROLE_CLIENT: 'OPERATEUR_ECONOMIQUE',
+  ROLE_CONSIGNATEUR: 'CONSIGNATAIRE',
+  ROLE_TRANSPORTEUR: 'TRANSPORTEUR',
+  ROLE_ENTREPOSEUR: 'GESTIONNAIRE_ENTREPOT',
+};
+
+export const ROLE_BACK_VERS_FRONT = {
+  ...Object.fromEntries(
+    Object.entries(ROLE_FRONT_VERS_BACK).map(([front, back]) => [back, front])
+  ),
+  // Les rôles d'administration n'ont pas d'espace dédié : ils voient le cockpit CDA.
+  SUPER_ADMIN: 'ROLE_CDA',
+  ADMIN: 'ROLE_CDA',
+  COMPTABLE: 'ROLE_CDA',
+  MANAGER: 'ROLE_ENTREPOSEUR',
+};
+
+export function versRoleBackend(roleFront) {
+  return ROLE_FRONT_VERS_BACK[roleFront] || 'OPERATEUR_ECONOMIQUE';
+}
+
+export function versRoleFrontend(roleBackend) {
+  return ROLE_BACK_VERS_FRONT[roleBackend] || 'ROLE_CLIENT';
+}

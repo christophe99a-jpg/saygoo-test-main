@@ -87,3 +87,125 @@ model ConfigPaiement {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }
+// ── Compte Logistique Numérique (CLN) ──────────────────────────────────────────
+// Remplace la notion de "Portefeuille" pour éviter les problèmes de conformité BCEAO.
+
+enum MethodeInstruction {
+  VIREMENT_BANCAIRE
+  VISA_BUSINESS
+  PAYGATE_FLOOZ
+  TMONEY
+}
+
+enum StatutInstruction {
+  DEMANDE           // Création de l'ordre
+  TRANSMISE         // Transmission au partenaire financier
+  EN_TRAITEMENT     // En cours de traitement bancaire
+  EXECUTEE          // Paiement exécuté
+  REJETEE           // Paiement rejeté
+}
+
+enum TypeCreditInterne {
+  BONUS_COMMERCIAL
+  POINTS_FIDELITE
+  AVOIR_COMMERCIAL
+  REMBOURSEMENT
+  AJUSTEMENT_COMPTABLE
+}
+
+enum ServiceEcosysteme {
+  FRET_TERRESTRE
+  FRET_MARITIME
+  FRET_AERIEN
+  TRANSIT_DOUANIER
+  ENTREPOSAGE
+  INSPECTION
+  ASSURANCE_CARGO
+  MANUTENTION
+  SERVICES_ADMINISTRATIFS
+}
+
+enum StatutReservation {
+  ACTIVE
+  LIBEREE
+  CONSOMMEE
+}
+
+enum TypeOperationCLN {
+  CREDIT_INTERNE
+  RESERVATION_FONDS
+  LIBERATION_FONDS
+  PAIEMENT_SERVICE
+  COMPENSATION
+  INSTRUCTION_PAIEMENT
+}
+
+model CompteLogistique {
+  id              String    @id @default(uuid())
+  organisationId  String    @unique
+  solde           Float     @default(0) // Solde disponible
+  soldeReserve    Float     @default(0) // Total actuellement bloqué en escrow
+  devise          DeviseCode @default(XOF)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  operations      OperationCLN[]
+  instructions    InstructionPaiement[]
+  reservations    ReservationFonds[]
+
+  @@index([organisationId])
+}
+
+model InstructionPaiement {
+  id          String              @id @default(uuid())
+  compte      CompteLogistique    @relation(fields: [compteId], references: [id])
+  compteId    String
+  reference   String              @unique
+  montant     Float
+  methode     MethodeInstruction
+  partenaire  String?             // ex: ECOBANK Business, PAYGATE Mobile Money
+  statut      StatutInstruction   @default(DEMANDE)
+  motifRejet  String?
+  dossierId   String?
+  dossierRef  String?
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  @@index([compteId])
+  @@index([statut])
+}
+
+model ReservationFonds {
+  id          String            @id @default(uuid())
+  compte      CompteLogistique  @relation(fields: [compteId], references: [id])
+  compteId    String
+  montant     Float
+  motif       String?
+  dossierId   String?
+  dossierRef  String?
+  statut      StatutReservation @default(ACTIVE)
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  @@index([compteId])
+  @@index([statut])
+}
+
+model OperationCLN {
+  id          String            @id @default(uuid())
+  compte      CompteLogistique  @relation(fields: [compteId], references: [id])
+  compteId    String
+  type        TypeOperationCLN
+  sousType    String?           // valeur de TypeCreditInterne / ServiceEcosysteme selon le type
+  montant     Float
+  soldeAvant  Float
+  soldeApres  Float
+  dossierId   String?
+  dossierRef  String?
+  clientId    String?
+  description String?
+  createdAt   DateTime          @default(now())
+
+  @@index([compteId])
+  @@index([type])
+}

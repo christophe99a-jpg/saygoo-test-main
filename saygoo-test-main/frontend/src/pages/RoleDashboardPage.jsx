@@ -12,7 +12,7 @@ import {
   SectionIntro,
   SegmentedPills,
 } from '../components/dashboard/DashboardUI';
-const WalletBoard = lazy(() => import('../components/dashboard/WalletBoard'));
+const CompteLogistique = lazy(() => import('../components/dashboard/CompteLogistique'));
 import { ROLE_SCREENS } from '../config/dashboardScreens';
 
 export default function RoleDashboardPage({ roleKey }) {
@@ -23,8 +23,12 @@ export default function RoleDashboardPage({ roleKey }) {
   const [focusMode, setFocusMode] = useState(screen.focusModes[0]);
   const [isPaletteOpen, setIsPaletteOpen] = useState(false);
 
-  // Dynamically select the board component based on focusMode
-  const BoardComponent = focusMode === 'Portefeuille' ? WalletBoard : screen.component;
+  // Le composant affiché dépend du focus courant : on prend celui déclaré pour ce
+  // focus s'il existe, sinon le composant par défaut de l'écran.
+  const BoardComponent =
+    focusMode === 'Portefeuille'
+      ? CompteLogistique
+      : screen.composantsParFocus?.[focusMode] || screen.component;
 
   useEffect(() => {
     setFocusMode(screen.focusModes[0]);

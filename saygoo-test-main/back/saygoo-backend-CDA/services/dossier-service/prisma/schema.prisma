@@ -1,0 +1,415 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Dossier {
+  id                  String              @id @default(uuid())
+  reference           String              @unique
+  clientId            String
+  clientNom           String
+  agentId             String?
+  agentNom            String?
+  statut              StatutDossier       @default(EN_ATTENTE)
+  typeMarchandise     TypeMarchandise
+  regimeDouanier      RegimeDouanier      @default(IM4)
+  typeVehicule        TypeVehicule?
+  vin                 String?             // Numéro de châssis (véhicules)
+  destinationPays     String?             // Transit : pays de destination
+  destinationVille    String?             // Transit : ville de destination
+  description         String?
+  poids               Float?
+  volume              Float?
+  valeurFOB           Float?
+  valeurFret          Float?
+  valeurAssurance     Float?
+  valeurCIF           Float?
+  devise              String              @default("XOF")
+  numeroDeclaration   String?
+  numeroConnaissement String?
+  paysOrigine         String?
+  portEmbarquement    String?
+  portDestination     String?             @default("Lomé")
+  dateArrivee         DateTime?
+  dateDedouanement    DateTime?
+  dateLivraison       DateTime?
+  organisationId      String?
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+  Document            Document[]
+  historique          HistoriqueDossier[]
+  Note                Note[]
+  formalites          FormaliteDossier[]
+   // ── Données logistiques saisies par l'opérateur ────────────────────────────
+  codeHS               String?   // code du Système Harmonisé, ex. 8704.23
+  nombreConteneurs     Int?
+  modeTransport        String?   // Routier, Maritime, Aerien, Ferroviaire
+  distanceKm           Float?
+  lienGeolocalisation  String?   // lien Maps ou coordonnées du point de livraison
+  co2EstimeKg          Float?
+
+  // ── Finances et services complémentaires ──────────────────────────────────
+  modePaiement         String?
+  paiementFractionne   Boolean   @default(false)
+  servicesGMS          String[]  // services additionnels retenus
+
+
+  @@index([statut])
+  @@index([clientId])
+  @@index([reference])
+  @@index([agentId])
+  @@index([codeHS])
+}
+
+model HistoriqueDossier {
+  id            String         @id @default(uuid())
+  dossierId     String
+  action        String
+  description   String?
+  userId        String
+  userNom       String
+  ancienStatut  StatutDossier?
+  nouveauStatut StatutDossier?
+  createdAt     DateTime       @default(now())
+  dossier       Dossier        @relation(fields: [dossierId], references: [id], onDelete: Cascade)
+
+  @@index([dossierId])
+}
+
+model Document {
+  id           String            @id
+  dossierId    String
+  nom          String
+  type         String
+  url          String
+  taille       Int?
+  uploadePar   String
+  version      Int               @default(1)
+  statut       DocumentStatut    @default(DEPOSE)
+  signePar     String?
+  signeAt      DateTime?
+  motifRejet   String?
+  archive      Boolean           @default(false)
+  archiveAt    DateTime?
+  createdAt    DateTime          @default(now())
+  Dossier      Dossier           @relation(fields: [dossierId], references: [id], onDelete: Cascade)
+  historique   DocumentHistorique[]
+
+  @@index([dossierId])
+  @@index([type])
+  @@index([statut])
+}
+
+model DocumentHistorique {
+  id         String   @id @default(uuid())
+  documentId String
+  action     String   // Ajouté, Version déposée, Consulté, Téléchargé, Signé, Validé, Rejeté, Archivé
+  userId     String?
+  userNom    String?
+  role       String?
+  createdAt  DateTime @default(now())
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([documentId])
+}
+
+enum DocumentStatut {
+  DEPOSE
+  VALIDE
+  SIGNE
+  REJETE
+}
+
+model Note {
+  id        String   @id
+  dossierId String
+  contenu   String
+  userId    String
+  userNom   String
+  createdAt DateTime @default(now())
+  Dossier   Dossier  @relation(fields: [dossierId], references: [id], onDelete: Cascade)
+
+  @@index([dossierId])
+}
+
+enum StatutDossier {
+  EN_ATTENTE
+  EN_COURS
+  DOCUMENTS_COMPLEMENTAIRES
+  DECLARE
+  EN_ATTENTE_DOUANE
+  DEDOUANE
+  LIVRE
+  ANNULE
+}
+
+enum RegimeDouanier {
+  IM4
+  IM7
+  TRANSIT
+  REGIME_SUSPENSIF
+  EXPORT
+}
+
+enum TypeMarchandise {
+  CONTENEUR_20
+  CONTENEUR_40
+  VRAC
+  VEHICULE
+  COLIS
+  AUTRE
+}
+
+enum TypeVehicule {
+  CATEGORIE_A
+  CATEGORIE_B
+  CATEGORIE_C
+}
+
+model FormaliteDossier {
+  id          String        @id @default(uuid())
+  dossier     Dossier       @relation(fields: [dossierId], references: [id], onDelete: Cascade)
+  dossierId   String
+  type        TypeFormalite // IMPORT ou TRANSIT
+  libelle     String        // ex: "Déclaration en douane", "Laisser-passer"
+  complete    Boolean       @default(false)
+  completeAt  DateTime?
+  createdAt   DateTime      @default(now())
+
+  @@index([dossierId])
+}
+
+enum TypeFormalite {
+  IMPORT
+  TRANSIT
+}
+
+// ── STOCKAGE SOUS DOUANE ─────────────────────────────────────────────────────────
+
+enum StatutStockage {
+  NOUVEAU        // 🟡
+  ACCEPTE        // 🔵
+  STOCKE         // 🟢
+  PRET_A_SORTIR  // 🟣
+  CLOTURE        // ⚫
+  REFUSE
+}
+
+enum TypeStockage {
+  VRAC
+  CONTENEUR
+}
+
+enum ModeSortie {
+  CAMION
+  CONTENEUR
+  AUTRE
+}
+
+model DemandeStockage {
+  id                  String          @id @default(uuid())
+  reference           String          @unique // ex: ST-2026-000245
+  clientId            String
+  clientNom           String
+  blReference         String?
+  nature              String          // ex: Clinker, Riz, Conteneur 40'
+  typeStockage        TypeStockage
+  quantite            Float?
+  uniteQuantite       String?         // Tonnes, Conteneurs...
+  dateEntreeSouhaitee DateTime?
+  dureeEstimeeJours   Int?
+  statut              StatutStockage  @default(NOUVEAU)
+  motifRefus          String?
+
+  // Affectation d'emplacement
+  zone                String?
+  allee               String?
+  emplacement         String?
+  dateEntreeReelle    DateTime?
+  dateSortiePrevue    DateTime?
+
+  // Sortie
+  quantiteSortie      Float?
+  modeSortie          ModeSortie?
+  dateSortieReelle    DateTime?
+
+  organisationId      String?
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+
+  documents           DocumentStockage[]
+  historique          HistoriqueStockage[]
+
+  @@index([statut])
+  @@index([clientId])
+  @@index([reference])
+}
+
+model DocumentStockage {
+  id         String          @id @default(uuid())
+  demande    DemandeStockage @relation(fields: [demandeId], references: [id], onDelete: Cascade)
+  demandeId  String
+  nom        String
+  type       String          // BL, Facture, Packing List, DDU, BAD, Facture MAD, Bon à Enlever, Autre
+  url        String
+  uploadePar String
+  createdAt  DateTime        @default(now())
+
+  @@index([demandeId])
+}
+
+model HistoriqueStockage {
+  id          String          @id @default(uuid())
+  demande     DemandeStockage @relation(fields: [demandeId], references: [id], onDelete: Cascade)
+  demandeId   String
+  action      String
+  userId      String?
+  userNom     String?
+  description String?
+  createdAt   DateTime        @default(now())
+
+  @@index([demandeId])
+}
+
+// ── TRANSPORT ────────────────────────────────────────────────────────────────────
+
+enum StatutTransport {
+  NOUVEAU                  // 🟡
+  RECHERCHE_TRANSPORTEUR   // 🔵
+  AFFECTE                  // 🟢
+  EN_TRANSPORT             // 🚚
+  LIVRE                    // ✅
+  REFUSE
+}
+
+enum LieuChargement {
+  PAL               // Port Autonome de Lomé
+  ENTREPOT_DOUANE
+}
+
+model DemandeTransport {
+  id                String            @id @default(uuid())
+  reference         String            @unique // ex: TR-2026-000258
+  clientId          String
+  clientNom         String
+  lieuChargement    LieuChargement
+  destination       String
+  paysDestination   String?
+  natureMarchandise String?
+  quantite          Float?
+  poidsKg           Float?
+  statut            StatutTransport   @default(NOUVEAU)
+  motifRefus        String?
+
+  // Affectation
+  transporteurNom      String?
+  typeCamion           String?
+  conducteurNom        String?
+  conducteurTelephone  String?
+  dateChargement       DateTime?
+
+  // Suivi
+  dernierePosition     String?
+
+  // Livraison
+  dateLivraison        DateTime?
+  podUrl               String?   // Preuve de livraison (Proof Of Delivery)
+  signatureConfirmee   Boolean   @default(false)
+
+  organisationId    String?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  offres            OffreTransporteur[]
+  documents         DocumentTransport[]
+  historique        HistoriqueTransport[]
+
+  @@index([statut])
+  @@index([clientId])
+  @@index([reference])
+}
+
+model OffreTransporteur {
+  id              String            @id @default(uuid())
+  demande         DemandeTransport  @relation(fields: [demandeId], references: [id], onDelete: Cascade)
+  demandeId       String
+  transporteurNom String
+  note            Float?            // Notation étoiles (ex: 4.5)
+  disponibilite   String?           // ex: "Disponible aujourd'hui"
+  selectionnee    Boolean           @default(false)
+  createdAt       DateTime          @default(now())
+
+  @@index([demandeId])
+}
+
+model DocumentTransport {
+  id         String            @id @default(uuid())
+  demande    DemandeTransport  @relation(fields: [demandeId], references: [id], onDelete: Cascade)
+  demandeId  String
+  nom        String
+  type       String            // BAD, Déclaration, BL, Facture, Autre
+  url        String
+  uploadePar String
+  createdAt  DateTime          @default(now())
+
+  @@index([demandeId])
+}
+
+model HistoriqueTransport {
+  id          String            @id @default(uuid())
+  demande     DemandeTransport  @relation(fields: [demandeId], references: [id], onDelete: Cascade)
+  demandeId   String
+  action      String
+  userId      String?
+  userNom     String?
+  description String?
+  createdAt   DateTime          @default(now())
+
+  @@index([demandeId])
+}
+
+// ── PARC À VÉHICULES SOUS DOUANE (Marketplace Opérateur Économique) ────────────
+
+model Vehicule {
+  id                   String   @id @default(uuid())
+  lot                  String   @unique // ex: V001
+  marque               String
+  modele               String
+  couleur              String?
+  annee                Int
+  kilometrage          Int?
+  energie              String   // ESSENCE, DIESEL, ELECTRIQUE, HYBRIDE
+  statut               String   @default("DISPONIBLE") // DISPONIBLE, RESERVE, VENDU
+  prix                 Float
+  documentsDisponibles String[] // ex: ["Déclaration douane", "Certificat origine", "État du véhicule"]
+  createdAt            DateTime @default(now())
+
+  ventes               VenteVehicule[]
+
+  @@index([statut])
+}
+
+model VenteVehicule {
+  id                 String   @id @default(uuid())
+  reference          String   @unique // ex: ACH-2026-000123
+  vehiculeId         String
+  acheteurId         String
+  acheteurEntreprise String?
+  acheteurTelephone  String?
+  typeAchat          String   // IMPORT, TRANSIT
+  statut             String   @default("CONFIRME")
+  dossierId          String?  // Dossier de dédouanement/transit lié
+  assuranceDuree     String?  // 6_MOIS, 12_MOIS (si IMPORT)
+  destinationPays    String?  // si TRANSIT
+  destinationVille   String?  // si TRANSIT
+  createdAt          DateTime @default(now())
+
+  vehicule           Vehicule @relation(fields: [vehiculeId], references: [id])
+
+  @@index([acheteurId])
+  @@index([dossierId])
+}

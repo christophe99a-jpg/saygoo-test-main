@@ -1,0 +1,120 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Rôles utilisés par l'ensemble des services SAYGOO
+enum Role {
+  SUPER_ADMIN
+  ADMIN
+  CDA                    // Commissionnaire en Douane Agréé / Transitaire
+  CONSIGNATAIRE
+  OPERATEUR_ECONOMIQUE
+  GESTIONNAIRE_ENTREPOT
+  TRANSPORTEUR
+  COMPTABLE
+  MANAGER
+}
+
+enum StatutCompte {
+  EN_ATTENTE_VALIDATION
+  ACTIF
+  SUSPENDU
+  DESACTIVE
+}
+
+model Utilisateur {
+  id                String        @id @default(uuid())
+  email             String        @unique
+  motDePasseHash    String
+  prenom            String
+  nom               String
+  telephone         String?
+  role              Role
+  statut            StatutCompte  @default(EN_ATTENTE_VALIDATION)
+
+  // Rattachement organisation (repris dans le JWT par les autres services)
+  organisationId    String?
+  raisonSociale     String?
+
+  emailVerifie      Boolean       @default(false)
+  derniereConnexion DateTime?
+
+  // Double authentification (TOTP)
+  twoFactorActive   Boolean       @default(false)
+  twoFactorSecret   String?
+
+  // Verrouillage après échecs répétés
+  tentativesEchouees Int          @default(0)
+  verrouilleJusqua  DateTime?
+
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  refreshTokens     RefreshToken[]
+  jetons            JetonUsage[]
+
+  @@index([email])
+  @@index([role])
+  @@index([statut])
+  @@index([organisationId])
+}
+
+// Jetons de rafraîchissement (stockés en base : pas de dépendance à Redis)
+model RefreshToken {
+  id            String      @id @default(uuid())
+  token         String      @unique
+  utilisateurId String
+  expireAt      DateTime
+  revoque       Boolean     @default(false)
+  userAgent     String?
+  adresseIp     String?
+  createdAt     DateTime    @default(now())
+
+  utilisateur   Utilisateur @relation(fields: [utilisateurId], references: [id], onDelete: Cascade)
+
+  @@index([utilisateurId])
+  @@index([token])
+}
+
+enum TypeJeton {
+  VERIFICATION_EMAIL
+  REINITIALISATION_MDP
+}
+
+// Jetons à usage unique (vérification d'email, réinitialisation de mot de passe)
+model JetonUsage {
+  id            String      @id @default(uuid())
+  token         String      @unique
+  type          TypeJeton
+  utilisateurId String
+  expireAt      DateTime
+  utilise       Boolean     @default(false)
+  createdAt     DateTime    @default(now())
+
+  utilisateur   Utilisateur @relation(fields: [utilisateurId], references: [id], onDelete: Cascade)
+
+  @@index([token])
+  @@index([utilisateurId])
+}
+
+// Journal des connexions et actions sensibles
+model JournalAuth {
+  id            String   @id @default(uuid())
+  utilisateurId String?
+  email         String?
+  action        String   // CONNEXION, ECHEC_CONNEXION, DECONNEXION, CHANGEMENT_MDP...
+  succes        Boolean  @default(true)
+  adresseIp     String?
+  userAgent     String?
+  detail        String?
+  createdAt     DateTime @default(now())
+
+  @@index([utilisateurId])
+  @@index([action])
+  @@index([createdAt])
+}

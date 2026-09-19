@@ -9,10 +9,12 @@ export default defineConfig({
     tailwindcss(),
   ],
   server: {
-    port: 3001,
+    // 3001 est réservé à l'auth-service : le front écoute sur le port Vite par défaut.
+    port: 5173,
     proxy: {
+      // Tout /api part vers l'API Gateway, qui répartit vers les microservices.
       '/api': {
-        target: 'http://localhost:3000',
+        target: 'http://localhost:8000',
         changeOrigin: true,
         secure: false,
       },

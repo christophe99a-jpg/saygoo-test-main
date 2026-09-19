@@ -15989,3 +15989,31 @@ Error
 [2026-06-03 20:18:18] WARN: Info DB (sqlite): Fonctionnement en mode sans base de données. (Sequelize non initialisé)
 [2026-06-03 20:18:18] INFO: SAYGOO API démarrée sur le port 3000 [development]
 [2026-06-03 20:18:18] INFO: Health check : http://localhost:3000/health
+[2026-08-04 11:08:42] WARN: Mode sans BDD activé suite à une impossibilité d'initialiser Sequelize :
+[2026-08-04 11:08:44] WARN: Info DB (sqlite): Fonctionnement en mode sans base de données. (Sequelize non initialisé)
+[2026-08-04 11:08:44] INFO: SAYGOO API démarrée sur le port 3000 [development]
+[2026-08-04 11:08:44] INFO: Health check : http://localhost:3000/health
+[2026-08-31 10:02:05] WARN: Mode sans BDD activé suite à une impossibilité d'initialiser Sequelize :
+[2026-08-31 10:02:19] WARN: Info DB (sqlite): Fonctionnement en mode sans base de données. (Sequelize non initialisé)
+[2026-08-31 10:02:19] INFO: SAYGOO API démarrée sur le port 3000 [development]
+[2026-08-31 10:02:19] INFO: Health check : http://localhost:3000/health
+[2026-09-10 00:03:11] WARN: Mode sans BDD activé suite à une impossibilité d'initialiser Sequelize :
+[2026-09-10 00:03:18] WARN: Info DB (sqlite): Fonctionnement en mode sans base de données. (Sequelize non initialisé)
+[2026-09-10 00:03:18] INFO: SAYGOO API démarrée sur le port 3000 [development]
+[2026-09-10 00:03:18] INFO: Health check : http://localhost:3000/health
+[2026-09-10 00:06:12] WARN: Mode sans BDD activé suite à une impossibilité d'initialiser Sequelize :
+[2026-09-10 00:06:13] WARN: Info DB (sqlite): Fonctionnement en mode sans base de données. (Sequelize non initialisé)
+[2026-09-10 00:06:13] INFO: SAYGOO API démarrée sur le port 3000 [development]
+[2026-09-10 00:06:13] INFO: Health check : http://localhost:3000/health
+[2026-09-17 02:48:55] WARN: Mode sans BDD activé suite à une impossibilité d'initialiser Sequelize :
+[2026-09-17 02:49:07] WARN: Info DB (sqlite): Fonctionnement en mode sans base de données. (Sequelize non initialisé)
+[2026-09-17 02:49:07] INFO: SAYGOO API démarrée sur le port 3000 [development]
+[2026-09-17 02:49:07] INFO: Health check : http://localhost:3000/health
+[2026-09-17 03:03:32] WARN: Mode sans BDD activé suite à une impossibilité d'initialiser Sequelize :
+[2026-09-17 03:03:33] WARN: Info DB (sqlite): Fonctionnement en mode sans base de données. (Sequelize non initialisé)
+[2026-09-17 03:03:33] INFO: SAYGOO API démarrée sur le port 3000 [development]
+[2026-09-17 03:03:33] INFO: Health check : http://localhost:3000/health
+[2026-09-17 03:05:36] WARN: Mode sans BDD activé suite à une impossibilité d'initialiser Sequelize :
+[2026-09-17 03:05:37] WARN: Info DB (sqlite): Fonctionnement en mode sans base de données. (Sequelize non initialisé)
+[2026-09-17 03:05:37] INFO: SAYGOO API démarrée sur le port 3000 [development]
+[2026-09-17 03:05:37] INFO: Health check : http://localhost:3000/health

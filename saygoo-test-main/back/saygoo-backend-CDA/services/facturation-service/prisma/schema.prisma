@@ -1,0 +1,59 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum StatutFactureCDA {
+  BROUILLON
+  EMISE
+  PAYEE
+}
+
+enum TypeLigne {
+  CONSIGNATION           // Le Consignataire : FCT CONSIG
+  TERMINAL                // Togo Terminal (TT) ou Lomé Container Terminal (LCT)
+  PAL                      // Port Autonome de Lomé
+  DOUANE_OTR
+  CHAMBRE_COMMERCE         // CCIT - CCIBF - CCIN - CCIM
+  ANTASER
+  SEGUCE
+  HONORAIRE_TRANSITAIRE    // Calculé automatiquement
+  AUTRE
+}
+
+model FactureCDA {
+  id            String            @id @default(uuid())
+  reference     String            @unique // ex: FACCDA-2026-000123
+  dossierId     String?
+  dossierRef    String?
+  clientNom     String
+  statut        StatutFactureCDA  @default(BROUILLON)
+  montantTotal  Float             @default(0)
+  devise        String            @default("XOF")
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  lignes        LigneFacture[]
+
+  @@index([statut])
+  @@index([dossierId])
+  @@index([reference])
+}
+
+model LigneFacture {
+  id          String      @id @default(uuid())
+  facture     FactureCDA  @relation(fields: [factureId], references: [id], onDelete: Cascade)
+  factureId   String
+  type        TypeLigne
+  libelle     String
+  quantite    Float       @default(1)
+  montant     Float       // montant total de la ligne (déjà multiplié par la quantité)
+  calculAuto  Boolean     @default(false)
+  createdAt   DateTime    @default(now())
+
+  @@index([factureId])
+}

@@ -18,8 +18,12 @@ model Warehouse {
   temperature_type String
   security_level   Int
   status           String        @default("AVAILABLE")
+  tarifStockageParTonneJour   Float?        // FCFA / tonne / jour
+  capaciteEVP20               Int?          // capacité en équivalent 20 pieds
   reservations     Reservation[]
   inventory        Inventory[]
+  emplacements     Emplacement[]
+  demandesStockage DemandeStockageEntrepot[]
   createdAt        DateTime      @default(now())
 }
 
@@ -81,4 +85,110 @@ model User {
   password  String
   role      String   @default("OPERATOR")
   createdAt DateTime @default(now())
+}
+
+// ── GESTIONNAIRE D'ENTREPÔT — Demandes de stockage & Affectation d'emplacement ──
+
+model Emplacement {
+  id             String   @id @default(uuid())
+  warehouseId    String
+  zone           String   // A, B, C...
+  allee          String   // 03
+  slot           String   // A03-015
+  capaciteTonnes Float?
+  occupe         Boolean  @default(false)
+  createdAt      DateTime @default(now())
+
+  warehouse      Warehouse                 @relation(fields: [warehouseId], references: [id])
+  demandes       DemandeStockageEntrepot[]
+
+  @@unique([warehouseId, slot])
+  @@index([zone])
+  @@index([occupe])
+}
+
+model DemandeStockageEntrepot {
+  id                  String    @id @default(uuid())
+  reference           String    @unique // ex: ST-2026-000123
+  dossierRef          String?   // référence du dossier CDA d'origine
+  clientId            String?   // identifiant de l'opérateur économique demandeur
+  clientNom           String
+  contactTelephone    String?
+  typeStockage        String    // VRAC / CONTENEUR
+  marchandise         String
+  quantite            Float?
+  uniteQuantite       String?
+  dureeEstimeeJours   Int?
+  statut              String    @default("NOUVEAU") // NOUVEAU, ACCEPTE, REFUSE, STOCKE, LIBERE
+  motifRefus          String?
+  warehouseId         String?
+  emplacementId       String?
+  dateEntreeReelle    DateTime?
+  dateSortiePrevue    DateTime?
+    // Sortie
+  modeTransportSortie String?
+
+  dateSortieReelle    DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  warehouse           Warehouse?   @relation(fields: [warehouseId], references: [id])
+  emplacement         Emplacement? @relation(fields: [emplacementId], references: [id])
+  historique          HistoriqueStockageEntrepot[]
+  factures            FactureStockage[]
+
+  @@index([statut])
+  @@index([reference])
+}
+
+model HistoriqueStockageEntrepot {
+  id          String   @id @default(uuid())
+  demandeId   String
+  action      String
+  userId      String?
+  description String?
+  createdAt   DateTime @default(now())
+
+  demande     DemandeStockageEntrepot @relation(fields: [demandeId], references: [id], onDelete: Cascade)
+
+  @@index([demandeId])
+}
+
+model FactureStockage {
+  id                 String    @id @default(uuid())
+  demandeId          String
+  reference          String    @unique // ex: FACST-2026-000123
+  tarifParTonneJour  Float     @default(3500) // FCFA
+  quantite           Float
+  dureeJours         Int
+  montant            Float
+  statut             String    @default("GENEREE") // GENEREE, PAYEE
+  createdAt          DateTime  @default(now())
+
+  demande            DemandeStockageEntrepot @relation(fields: [demandeId], references: [id], onDelete: Cascade)
+
+  @@index([demandeId])
+}
+
+// ── INCIDENTS & ALERTES ─────────────────────────────────────────────────────────
+
+model Incident {
+  id            String    @id @default(uuid())
+  reference     String    @unique // ex: INC-2026-000123
+  type          String    // SECURITE, MATERIEL, LOGISTIQUE, DOUANE
+  description   String
+  zone          String?
+  latitude      Float?
+  longitude     Float?
+  photoUrl      String?
+  gravite       String    @default("JAUNE") // ROUGE, ORANGE, JAUNE
+  statut        String    @default("EN_COURS") // EN_COURS, RESOLU
+  warehouseId   String?
+  declarePar    String?
+  createdAt     DateTime  @default(now())
+  resoluAt      DateTime?
+
+  @@index([statut])
+  @@index([type])
+  @@index([reference])
 }

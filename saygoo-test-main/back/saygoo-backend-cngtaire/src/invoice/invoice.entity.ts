@@ -2,9 +2,19 @@ import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, ManyToOne, Jo
 import { BL } from '../bl/bl.entity';
 
 export enum InvoiceStatus {
-  PENDING = 'PENDING',
-  PAID = 'PAID',
+  DRAFT = 'DRAFT',     // Brouillon
+  PENDING = 'PENDING', // Émise
+  PAID = 'PAID',       // Payée
   CANCELLED = 'CANCELLED',
+}
+
+// Nature de la prestation (plusieurs valeurs possibles)
+export enum ServiceNature {
+  CONSIGNATION = 'CONSIGNATION',
+  MANUTENTION = 'MANUTENTION',
+  MAGASINAGE = 'MAGASINAGE',
+  DOCUMENTATION = 'DOCUMENTATION',
+  AUTRES = 'AUTRES',
 }
 
 @Entity('invoices')
@@ -30,6 +40,21 @@ export class Invoice {
 
   @Column({ type: 'enum', enum: InvoiceStatus, default: InvoiceStatus.PENDING })
   status!: InvoiceStatus;
+
+  @Column({ nullable: true })
+  client_name!: string;
+
+  @Column({ type: 'simple-array', nullable: true })
+  service_nature!: ServiceNature[];
+
+  @Column({ type: 'text', nullable: true })
+  observations!: string;
+
+  @Column({ nullable: true })
+  consignee_invoice_reference!: string;
+
+  @Column({ nullable: true })
+  file_path!: string;
 
   @CreateDateColumn()
   created_at!: Date;

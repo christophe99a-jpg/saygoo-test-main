@@ -1,317 +1,195 @@
 /* eslint-disable react-refresh/only-export-components */
-// front-F/src/auth/AuthContextF.jsx
-// Contexte d'authentification unifié — appels réels au back-end Express avec fallback local.
+// src/auth/AuthContextF.jsx
+// Contexte d'authentification — s'appuie exclusivement sur l'auth-service SAYGOO
+// via l'API Gateway. Aucune session n'est créée si le back-end est injoignable.
 
-import React, { createContext, useContext, useState } from 'react';
-import { ROLE_DEFINITIONS_BY_KEY } from './roles';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { ROLE_DEFINITIONS_BY_KEY, versRoleBackend, versRoleFrontend } from './roles';
+import { AuthAPI, lireSession, ecrireSession } from '../lib/apiF';
 
-const SESSION_STORAGE_KEY = 'saygoo.auth.session.v1';
 const ROLE_STORAGE_KEY = 'saygoo.auth.selected-role.v1';
-const SESSION_DURATION_MS = 1000 * 60 * 60 * 24 * 7;
 
 const AuthContext = createContext(null);
 
-function canUseStorage() {
-  return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
-}
-
-function readJson(key) {
-  if (!canUseStorage()) return null;
-
+function lireRoleChoisi() {
   try {
-    const raw = window.localStorage.getItem(key);
-    return raw ? JSON.parse(raw) : null;
+    const raw = localStorage.getItem(ROLE_STORAGE_KEY);
+    const cle = raw ? JSON.parse(raw) : null;
+    return ROLE_DEFINITIONS_BY_KEY[cle] ? cle : null;
   } catch {
     return null;
   }
 }
 
-function writeJson(key, value) {
-  if (!canUseStorage()) return;
-
-  if (value === null || value === undefined) {
-    window.localStorage.removeItem(key);
+function ecrireRoleChoisi(cle) {
+  if (!cle) {
+    localStorage.removeItem(ROLE_STORAGE_KEY);
     return;
   }
-
-  window.localStorage.setItem(key, JSON.stringify(value));
+  localStorage.setItem(ROLE_STORAGE_KEY, JSON.stringify(cle));
 }
 
-function readStoredRole() {
-  const roleKey = readJson(ROLE_STORAGE_KEY);
-  return ROLE_DEFINITIONS_BY_KEY[roleKey] ? roleKey : null;
+// Construit la session applicative à partir de la réponse de l'auth-service.
+function construireSession({ accessToken, refreshToken, utilisateur }, mode) {
+  const roleFront = versRoleFrontend(utilisateur.role);
+
+  return {
+    accessToken,
+    refreshToken,
+    role: roleFront,
+    roleBackend: utilisateur.role,
+    mode,
+    email: utilisateur.email,
+    issuedAt: Date.now(),
+    profile: {
+      fullName: `${utilisateur.prenom} ${utilisateur.nom}`.trim(),
+      companyName: utilisateur.raisonSociale || '',
+      roleIdentifier: utilisateur.organisationId || '',
+    },
+    utilisateur,
+  };
 }
-
-function readStoredSession() {
-  const session = readJson(SESSION_STORAGE_KEY);
-
-  if (!session) return null;
-  if (session.role && !ROLE_DEFINITIONS_BY_KEY[session.role]) {
-    writeJson(SESSION_STORAGE_KEY, null);
-    return null;
-  }
-
-  if (!session.expiresAt || session.expiresAt < Date.now()) {
-    writeJson(SESSION_STORAGE_KEY, null);
-    return null;
-  }
-
-  return session;
-}
-
-function createSessionToken(email) {
-  const entropy =
-    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-      ? crypto.randomUUID()
-      : Math.random().toString(36).slice(2, 14);
-
-  const payload = `${email}:${Date.now()}`;
-  const encoded =
-    typeof btoa === 'function'
-      ? btoa(payload).replace(/=/g, '')
-      : payload.replace(/[^a-zA-Z0-9]/g, '');
-
-  return `saygoo.${encoded}.${entropy}`;
-}
-
-function normalizeRole(roleKey) {
-  return ROLE_DEFINITIONS_BY_KEY[roleKey] ? roleKey : 'ROLE_CLIENT';
-}
-
-// Mapping des rôles front-end vers les rôles back-end
-const ROLE_MAP_TO_BACKEND = {
-  ROLE_CDA: 'CDA',
-  ROLE_CLIENT: 'OPERATEUR',
-  ROLE_CONSIGNATEUR: 'CONSIGNATEUR',
-  ROLE_TRANSPORTEUR: 'TRANSPORTEUR',
-  ROLE_ENTREPOSEUR: 'ENTREPOSEUR',
-};
-
-const ROLE_MAP_FROM_BACKEND = Object.fromEntries(
-  Object.entries(ROLE_MAP_TO_BACKEND).map(([k, v]) => [v, k])
-);
 
 export function AuthProvider({ children }) {
-  const [session, setSession] = useState(() => readStoredSession());
-  const [selectedRole, setSelectedRoleState] = useState(() => readStoredRole());
+  const [session, setSession] = useState(() => lireSession());
+  const [selectedRole, setSelectedRoleState] = useState(() => lireRoleChoisi());
 
-  const selectRole = (roleKey) => {
-    const nextRole = normalizeRole(roleKey);
-    setSelectedRoleState(nextRole);
-    writeJson(ROLE_STORAGE_KEY, nextRole);
+  const appliquerSession = useCallback((nouvelleSession) => {
+    setSession(nouvelleSession);
+    ecrireSession(nouvelleSession);
+
+    if (nouvelleSession?.role) {
+      setSelectedRoleState(nouvelleSession.role);
+      ecrireRoleChoisi(nouvelleSession.role);
+    }
+  }, []);
+
+  const logout = useCallback(async () => {
+    const courante = lireSession();
+
+    // On tente de révoquer le refresh token côté serveur, sans bloquer
+    // la déconnexion locale si le service ne répond pas.
+    if (courante?.refreshToken) {
+      try {
+        await AuthAPI.deconnexion(courante.refreshToken);
+      } catch {
+        /* déconnexion locale malgré tout */
+      }
+    }
+
+    setSession(null);
+    ecrireSession(null);
+    setSelectedRoleState(null);
+    ecrireRoleChoisi(null);
+  }, []);
+
+  // Le client API émet cet événement quand le refresh échoue :
+  // la session est alors devenue inutilisable.
+  useEffect(() => {
+    const surExpiration = () => {
+      setSession(null);
+      setSelectedRoleState(null);
+      ecrireRoleChoisi(null);
+    };
+    window.addEventListener('saygoo:session-expiree', surExpiration);
+    return () => window.removeEventListener('saygoo:session-expiree', surExpiration);
+  }, []);
+
+  const selectRole = (cle) => {
+    const role = ROLE_DEFINITIONS_BY_KEY[cle] ? cle : 'ROLE_CLIENT';
+    setSelectedRoleState(role);
+    ecrireRoleChoisi(role);
   };
 
   const clearSelectedRole = () => {
     setSelectedRoleState(null);
-    writeJson(ROLE_STORAGE_KEY, null);
+    ecrireRoleChoisi(null);
   };
 
-  // ─── LOGIN : appel réel au back-end avec fallback local ───────
-  const login = async ({
-    mode,
-    email,
-    password,
-    fullName,
-    companyName,
-    role,
-  }) => {
-    const now = Date.now();
-    const normalizedRole = role ? normalizeRole(role) : null;
-    const backendRole = normalizedRole ? (ROLE_MAP_TO_BACKEND[normalizedRole] || 'OPERATEUR') : 'OPERATEUR';
+  // ─── CONNEXION / INSCRIPTION ────────────────────────────────────
+  const login = async ({ mode, email, password, fullName, companyName, role }) => {
+    if (mode === 'signup') {
+      const [prenom, ...resteNom] = (fullName || '').trim().split(' ');
 
-    try {
-      if (mode === 'signup') {
-        // ── INSCRIPTION ──
-        const res = await fetch('/api/v1/auth/inscription', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            raisonSociale: (companyName || '').trim() || 'Organisation SAYGOO',
-            nomRepresentant: (fullName || '').trim().split(' ')[0] || 'Utilisateur',
-            prenomRepresentant: (fullName || '').trim().split(' ').slice(1).join(' ') || 'SAYGOO',
-            email: email.trim(),
-            telephone: '00000000',
-            motDePasse: password,
-            role: backendRole,
-          }),
-        });
+      const reponse = await AuthAPI.inscription({
+        email: email.trim(),
+        motDePasse: password,
+        prenom: prenom || 'Utilisateur',
+        nom: resteNom.join(' ') || 'SAYGOO',
+        raisonSociale: (companyName || '').trim() || undefined,
+        role: versRoleBackend(role),
+      });
 
-        const data = await res.json();
-
-        if (res.ok && data.success) {
-          const nextSession = {
-            token: data.data.accessToken,
-            accessToken: data.data.accessToken,
-            refreshToken: data.data.refreshToken,
-            role: normalizedRole,
-            mode,
-            email: email.trim(),
-            issuedAt: now,
-            expiresAt: now + SESSION_DURATION_MS,
-            profile: {
-              fullName: data.data.user?.nomRepresentant
-                ? `${data.data.user.nomRepresentant} ${data.data.user.prenomRepresentant}`
-                : (fullName || '').trim() || 'Utilisateur SAYGOO',
-              companyName: data.data.user?.raisonSociale || (companyName || '').trim() || 'Organisation SAYGOO',
-              roleIdentifier: '',
-            },
-            credentials: { passwordLength: password.length },
-            backendUser: data.data.user,
-          };
-
-          if (normalizedRole) {
-            setSelectedRoleState(normalizedRole);
-            writeJson(ROLE_STORAGE_KEY, normalizedRole);
-          }
-
-          setSession(nextSession);
-          writeJson(SESSION_STORAGE_KEY, nextSession);
-          return nextSession;
-        }
-
-        // En cas d'erreur API (ex: email déjà pris), on laisse l'erreur remonter
-        console.warn('[AuthContextF] Inscription erreur API :', data.message);
-        // Fallback local si l'erreur n'est pas critique
-        if (res.status === 409) {
-          throw new Error(data.message || 'Un compte existe déjà avec cet email');
-        }
-      } else {
-        // ── CONNEXION ──
-        const res = await fetch('/api/v1/auth/connexion', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            email: email.trim(),
-            motDePasse: password,
-          }),
-        });
-
-        const data = await res.json();
-
-        if (res.ok && data.success) {
-          const serverRole = data.data.user?.role;
-          const frontendRole = ROLE_MAP_FROM_BACKEND[serverRole] || normalizedRole || 'ROLE_CLIENT';
-
-          const nextSession = {
-            token: data.data.accessToken,
-            accessToken: data.data.accessToken,
-            refreshToken: data.data.refreshToken,
-            role: frontendRole,
-            mode,
-            email: email.trim(),
-            issuedAt: now,
-            expiresAt: now + SESSION_DURATION_MS,
-            profile: {
-              fullName: data.data.user?.nomRepresentant
-                ? `${data.data.user.nomRepresentant} ${data.data.user.prenomRepresentant}`
-                : 'Utilisateur SAYGOO',
-              companyName: data.data.user?.raisonSociale || 'Organisation SAYGOO',
-              roleIdentifier: '',
-            },
-            credentials: { passwordLength: password.length },
-            backendUser: data.data.user,
-          };
-
-          setSelectedRoleState(frontendRole);
-          writeJson(ROLE_STORAGE_KEY, frontendRole);
-          setSession(nextSession);
-          writeJson(SESSION_STORAGE_KEY, nextSession);
-          return nextSession;
-        }
-
-        if (res.status === 401) {
-          throw new Error(data.message || 'Email ou mot de passe incorrect');
-        }
-      }
-    } catch (err) {
-      // Si c'est une erreur d'authentification (401 / 409), on la remonte
-      if (err.message && (err.message.includes('incorrect') || err.message.includes('existe déjà'))) {
-        throw err;
-      }
-      // Sinon, c'est probablement un problème réseau → fallback local
-      console.warn('[AuthContextF] Backend indisponible, fallback session locale :', err.message);
+      // Le compte est créé mais reste à valider : aucune session n'est ouverte.
+      return {
+        inscriptionReussie: true,
+        message: reponse.message,
+        utilisateur: reponse.data?.utilisateur,
+      };
     }
 
-    // ─── FALLBACK LOCAL (quand le back-end est indisponible) ────
-    if (normalizedRole) {
-      setSelectedRoleState(normalizedRole);
-      writeJson(ROLE_STORAGE_KEY, normalizedRole);
-    }
-
-    const nextSession = {
-      token: createSessionToken(email),
-      role: normalizedRole,
-      mode,
+    const reponse = await AuthAPI.connexion({
       email: email.trim(),
-      issuedAt: now,
-      expiresAt: now + SESSION_DURATION_MS,
-      profile: {
-        fullName: (fullName || '').trim() || 'Utilisateur SAYGOO',
-        companyName: (companyName || '').trim() || 'Organisation SAYGOO',
-        roleIdentifier: '',
-      },
-      credentials: {
-        passwordLength: password.length,
-      },
-    };
-
-    setSession(nextSession);
-    writeJson(SESSION_STORAGE_KEY, nextSession);
-
-    return nextSession;
-  };
-
-  const assignRole = (roleKey) => {
-    const normalizedRole = normalizeRole(roleKey);
-    setSelectedRoleState(normalizedRole);
-    writeJson(ROLE_STORAGE_KEY, normalizedRole);
-
-    setSession((prev) => {
-      if (!prev) return prev;
-
-      const nextSession = {
-        ...prev,
-        role: normalizedRole,
-      };
-
-      writeJson(SESSION_STORAGE_KEY, nextSession);
-      return nextSession;
+      motDePasse: password,
     });
 
-    return normalizedRole;
+    // Le compte a la double authentification activée : un code est attendu.
+    if (reponse.twoFactorRequis) {
+      return { twoFactorRequis: true, message: reponse.message };
+    }
+
+    const nouvelleSession = construireSession(reponse.data, mode);
+    appliquerSession(nouvelleSession);
+    return nouvelleSession;
   };
 
-  const clearRole = () => {
-    clearSelectedRole();
-
-    setSession((prev) => {
-      if (!prev) return prev;
-
-      const nextSession = {
-        ...prev,
-        role: null,
-      };
-
-      writeJson(SESSION_STORAGE_KEY, nextSession);
-      return nextSession;
+  // Second temps de la connexion lorsque la 2FA est active.
+  const validerDoubleAuthentification = async ({ email, password, codeTotp }) => {
+    const reponse = await AuthAPI.connexion({
+      email: email.trim(),
+      motDePasse: password,
+      codeTotp,
     });
+
+    const nouvelleSession = construireSession(reponse.data, 'login');
+    appliquerSession(nouvelleSession);
+    return nouvelleSession;
   };
 
-  const logout = () => {
-    setSession(null);
-    writeJson(SESSION_STORAGE_KEY, null);
-    clearSelectedRole();
+  // Recharge le profil depuis le serveur (après une modification par exemple).
+  const rafraichirProfil = async () => {
+    const reponse = await AuthAPI.monProfil();
+    const utilisateur = reponse.data.utilisateur;
+
+    setSession((precedente) => {
+      if (!precedente) return precedente;
+      const maj = {
+        ...precedente,
+        utilisateur,
+        role: versRoleFrontend(utilisateur.role),
+        roleBackend: utilisateur.role,
+        profile: {
+          ...precedente.profile,
+          fullName: `${utilisateur.prenom} ${utilisateur.nom}`.trim(),
+          companyName: utilisateur.raisonSociale || '',
+        },
+      };
+      ecrireSession(maj);
+      return maj;
+    });
+
+    return utilisateur;
   };
 
   const value = {
     session,
     selectedRole,
-    isAuthenticated: Boolean(session),
+    isAuthenticated: Boolean(session?.accessToken),
     selectRole,
     clearSelectedRole,
     login,
-    assignRole,
-    clearRole,
+    validerDoubleAuthentification,
+    rafraichirProfil,
     logout,
   };
 

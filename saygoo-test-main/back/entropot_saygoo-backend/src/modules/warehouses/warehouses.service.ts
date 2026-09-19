@@ -43,6 +43,10 @@ export class WarehousesService {
     return this.prisma.warehouse.delete({ where: { id } });
   }
 
+    // Coordonnées du Port Autonome de Lomé (référence fixe pour la distance)
+  private readonly PAL_LAT = 6.1176;
+  private readonly PAL_LNG = 1.2769;
+
   async getAvailability(
     latitude?: number,
     longitude?: number,
@@ -72,6 +76,14 @@ export class WarehousesService {
         score = Math.round(distance + (100 - w.security_level * 10));
       }
 
+      // Distance par rapport au Port Autonome de Lomé (affichage "📍 X km du Port")
+      const distanceFromPortKm = Math.round(
+        Math.sqrt(
+          Math.pow(w.latitude - this.PAL_LAT, 2) +
+          Math.pow(w.longitude - this.PAL_LNG, 2),
+        ) * 111,
+      );
+
       return {
         id: w.id,
         name: w.name,
@@ -80,6 +92,9 @@ export class WarehousesService {
         temperature_type: w.temperature_type,
         capacity_total: w.capacity_m2,
         capacity_available: available,
+        capaciteEVP20: w.capaciteEVP20,
+        tarifStockageParTonneJour: w.tarifStockageParTonneJour,
+        distanceFromPortKm,
         security_level: w.security_level,
         latitude: w.latitude,
         longitude: w.longitude,

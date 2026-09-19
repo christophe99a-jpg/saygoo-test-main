@@ -1,5 +1,5 @@
 import React, { useState, Suspense, lazy } from 'react';
-import { BrowserRouter as Router, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
+import { BrowserRouter as Router, Link, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import './i18n/config';
 
 import Header from './components/Header';
@@ -24,12 +24,36 @@ const RoleDashboardPage = lazy(() => import('./pages/RoleDashboardPage'));
 
 import logoHeader from './assets/Typo 2.png';
 
+function PageIntrouvable() {
+  const { session } = useAuth();
+  const cible = session?.role ? getDashboardPath(session.role) : '/';
+
+  return (
+    <div className="flex min-h-[60vh] flex-col items-center justify-center gap-4 px-6 text-center">
+      <p className="text-[10px] font-black uppercase tracking-[0.3em] text-[#F36F21]">Erreur 404</p>
+      <h1 className="text-2xl font-black text-[#2A1A10]">Cette page n'existe pas</h1>
+      <p className="max-w-md text-sm text-gray-500">
+        L'adresse demandée est introuvable. Vérifiez le lien ou revenez à votre espace.
+      </p>
+      <Link
+        to={cible}
+        className="mt-2 rounded-full bg-[#F36F21] px-8 py-3 text-[10px] font-black uppercase tracking-widest text-white"
+      >
+        {session?.role ? 'Retour à mon espace' : "Retour à l'accueil"}
+      </Link>
+    </div>
+  );
+}
+
 function AppLayout() {
   const [showAuth, setShowAuth] = useState(false);
   const [authMode, setAuthMode] = useState('login');
   
   // New state to govern the onboarding step
   const [showOnboarding, setShowOnboarding] = useState(false);
+
+  // Message d'information affiché après inscription ou en cas d'erreur d'auth
+  const [infoMessage, setInfoMessage] = useState(null);
 
   const location = useLocation();
   const navigate = useNavigate();
@@ -52,24 +76,36 @@ function AppLayout() {
   const handleAuthSubmit = async (payload) => {
     try {
       const result = await login(payload);
-      setShowAuth(false);
-      
-      if (payload.mode === 'signup') {
-        setShowOnboarding(true);
-      } else {
-        const targetRole = result?.role || payload.role;
-        navigate(getDashboardPath(targetRole));
+
+      // À l'inscription, le back-end crée le compte au statut « en attente de
+      // validation » : aucune session n'est ouverte tant qu'un administrateur
+      // ne l'a pas activé.
+      if (result?.inscriptionReussie) {
+        setShowAuth(false);
+        setInfoMessage(
+          result.message ||
+            'Compte créé. Il doit être validé par un administrateur avant la première connexion.'
+        );
+        return;
       }
+
+      // Compte protégé par double authentification : un code est attendu.
+      if (result?.twoFactorRequis) {
+        setInfoMessage(result.message || 'Saisissez votre code de double authentification.');
+        return;
+      }
+
+      setShowAuth(false);
+      navigate(getDashboardPath(result.role));
     } catch (err) {
       console.error('[App] Erreur auth :', err.message);
-      alert(err.message || 'Erreur lors de l\'authentification');
+      setInfoMessage(err.message || "Erreur lors de l'authentification");
     }
   };
 
-  const handleOnboardingComplete = (data) => {
+  const handleOnboardingComplete = () => {
     setShowOnboarding(false);
-    // Ideally we would spread `data` into user profile. For now, navigate.
-    navigate(getDashboardPath(session.role));
+    if (session?.role) navigate(getDashboardPath(session.role));
   };
 
   const FallbackLoader = () => (
@@ -139,6 +175,14 @@ function AppLayout() {
             }
           />
           <Route
+            path="/dashboard/entrepot"
+            element={
+              <ProtectedRoute allowedRoles={['ROLE_ENTREPOSEUR']}>
+                <RoleDashboardPage roleKey="ROLE_ENTREPOSEUR" />
+              </ProtectedRoute>
+            }
+          />
+          <Route
             path="/dashboard/transporteur"
             element={
               <ProtectedRoute allowedRoles={['ROLE_TRANSPORTEUR']}>
@@ -155,7 +199,10 @@ function AppLayout() {
             }
           />
 
-          <Route path="*" element={<Navigate to="/" replace />} />
+          {/* Une URL inconnue affiche une page dédiée : rediriger vers « / »
+              provoquait une boucle avec PublicOnlyRoute quand l'utilisateur
+              était connecté. */}
+          <Route path="*" element={<PageIntrouvable />} />
           </Routes>
         </Suspense>
       </main>
@@ -179,6 +226,19 @@ function AppLayout() {
 
             <AuthPage initialMode={authMode} onSubmit={handleAuthSubmit} />
           </div>
+        </div>
+      )}
+
+      {infoMessage && (
+        <div className="fixed inset-x-0 bottom-6 z-[60] mx-auto w-[92%] max-w-md rounded-xl border border-[#F36F21]/40 bg-[#1B1B1B] px-5 py-4 shadow-2xl">
+          <p className="text-sm font-semibold text-white">{infoMessage}</p>
+          <button
+            type="button"
+            onClick={() => setInfoMessage(null)}
+            className="mt-3 text-[10px] font-black uppercase tracking-widest text-[#F36F21]"
+          >
+            Fermer
+          </button>
         </div>
       )}
 
