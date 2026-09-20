@@ -1,9 +1,10 @@
 node_modules/
-**/node_modules/
 .env
-**/.env
-sauvegardes/
+.env.local
 dist/
-build/
+logs/sauvegardes/
+frontend/.env
+sauvegardes/
+**/node_modules/
 logs/
-*.log
+**/logs/
