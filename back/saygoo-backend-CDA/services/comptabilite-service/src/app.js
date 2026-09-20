@@ -1,0 +1,66 @@
+require('dotenv').config();
+const express = require('express');
+const helmet = require('helmet');
+const cors = require('cors');
+const morgan = require('morgan');
+const rateLimit = require('express-rate-limit');
+
+const prisma = require('./config/prisma');
+const comptabiliteRoutes = require('./routes/comptabilite.routes');
+const logger = require('./utils/logger');
+
+const app = express();
+
+app.use(helmet());
+app.use(cors({
+  origin: process.env.APP_URL || 'http://localhost:5173',
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
+app.use(rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: 'Trop de requêtes. Veuillez patienter.' }
+}));
+
+// Limite plus large que les autres services : une écriture d'à-nouveaux
+// peut comporter plusieurs centaines de lignes.
+app.use(express.json({ limit: '2mb' }));
+app.use(express.urlencoded({ extended: true }));
+app.use(morgan('combined', {
+  stream: { write: (msg) => logger.info(msg.trim()) },
+  skip: () => process.env.NODE_ENV === 'test'
+}));
+
+app.use('/comptabilite', comptabiliteRoutes);
+
+app.get('/health', async (req, res) => {
+  const dbOk = await prisma.$queryRaw`SELECT 1`.then(() => true).catch(() => false);
+  res.json({
+    status: dbOk ? 'ok' : 'degraded',
+    service: 'saygoo-comptabilite-service',
+    version: '1.0.0',
+    referentiel: 'SYSCOHADA revise (AUDCIF 2017)',
+    timestamp: new Date().toISOString()
+  });
+});
+
+app.use((req, res) => {
+  res.status(404).json({ success: false, message: `Route non trouvée : ${req.path}` });
+});
+
+app.use((err, req, res, next) => {
+  logger.error('Erreur serveur', { err: err.message, stack: err.stack });
+  res.status(500).json({
+    success: false,
+    message: process.env.NODE_ENV === 'production'
+      ? 'Une erreur interne s\'est produite.'
+      : err.message
+  });
+});
+
+module.exports = app;

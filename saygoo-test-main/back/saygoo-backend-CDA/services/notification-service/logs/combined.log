@@ -1,6 +1,0 @@
-{"level":"info","message":"PostgreSQL connecté ✓","timestamp":"2026-04-19 07:34:13"}
-{"level":"info","message":"🔔 SAYGOO Notification Service démarré sur le port 3008","timestamp":"2026-04-19 07:34:13"}
-{"err":"\u001b[1;91merror\u001b[0m: \u001b[1mEnvironment variable not found: DATABASE_URL.\u001b[0m\n  \u001b[1;94m-->\u001b[0m  \u001b[4mschema.prisma:7\u001b[0m\n\u001b[1;94m   | \u001b[0m\n\u001b[1;94m 6 | \u001b[0m  provider = \"postgresql\"\n\u001b[1;94m 7 | \u001b[0m  url      = \u001b[1;91menv(\"DATABASE_URL\")\u001b[0m\n\u001b[1;94m   | \u001b[0m\n\nValidation Error Count: 1","level":"error","message":"Échec du démarrage","timestamp":"2026-09-10 00:11:40"}
-{"level":"info","message":"PostgreSQL connecté ✓","timestamp":"2026-09-10 00:25:30"}
-{"level":"warn","message":"Mode SIMULATION actif : les notifications sont enregistrées mais non expédiées.","timestamp":"2026-09-10 00:25:30"}
-{"level":"info","message":"🔔 SAYGOO Notification Service démarré sur le port 3004","timestamp":"2026-09-10 00:25:30"}

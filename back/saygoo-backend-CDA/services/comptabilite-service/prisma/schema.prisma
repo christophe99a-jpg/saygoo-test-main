@@ -1,0 +1,267 @@
+// Service comptabilité SAYGOO — référentiel SYSCOHADA révisé (AUDCIF 2017)
+//
+// Principes retenus :
+//  - partie double stricte : toute écriture équilibre débit et crédit
+//  - immuabilité : une écriture validée ne se modifie plus, elle s'extourne
+//  - rattachement à un exercice : aucune écriture sur un exercice clôturé
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Plan de comptes
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Classes SYSCOHADA. La classe 9 (comptabilité analytique) est facultative
+/// et hors périmètre du système normal.
+enum ClasseCompte {
+  CLASSE_1 // Ressources durables (capitaux propres, dettes financières)
+  CLASSE_2 // Actif immobilisé
+  CLASSE_3 // Stocks
+  CLASSE_4 // Tiers (créances de l'actif circulant, dettes du passif circulant)
+  CLASSE_5 // Trésorerie
+  CLASSE_6 // Charges des activités ordinaires
+  CLASSE_7 // Produits des activités ordinaires
+  CLASSE_8 // Autres charges et produits (hors activités ordinaires)
+}
+
+/// Sens dans lequel le compte est normalement soldé.
+/// Sert aux contrôles de cohérence et à la présentation de la balance.
+enum SensCompte {
+  DEBIT
+  CREDIT
+}
+
+model CompteComptable {
+  id        String       @id @default(uuid())
+  /// Numéro SYSCOHADA, 1 à 4 chiffres pour les comptes normalisés.
+  /// Les subdivisions internes peuvent aller au-delà (compte auxiliaire).
+  numero    String       @unique
+  intitule  String
+  classe    ClasseCompte
+  sens      SensCompte
+  /// Un compte collectif (411 Clients) reçoit des comptes auxiliaires
+  /// rattachés par tiersCode sur les lignes d'écriture.
+  collectif Boolean      @default(false)
+  actif     Boolean      @default(true)
+
+  lignes LigneEcriture[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([classe])
+  @@index([numero])
+  @@map("comptes_comptables")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Journaux
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum TypeJournal {
+  VENTE
+  ACHAT
+  BANQUE
+  CAISSE
+  OPERATIONS_DIVERSES
+  A_NOUVEAUX
+}
+
+model Journal {
+  id      String      @id @default(uuid())
+  /// Code court affiché dans les états : VE, AC, BQ, CA, OD, AN
+  code    String      @unique
+  libelle String
+  type    TypeJournal
+  actif   Boolean     @default(true)
+
+  ecritures Ecriture[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("journaux")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Exercices
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum StatutExercice {
+  OUVERT
+  CLOTURE
+}
+
+model Exercice {
+  id         String         @id @default(uuid())
+  annee      Int            @unique
+  dateDebut  DateTime
+  dateFin    DateTime
+  statut     StatutExercice @default(OUVERT)
+  clotureLe  DateTime?
+  cloturePar String?
+
+  ecritures Ecriture[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("exercices")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Écritures
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum StatutEcriture {
+  BROUILLON // modifiable et supprimable
+  VALIDEE   // immuable, comptabilisée
+  EXTOURNEE // annulée par une écriture inverse
+}
+
+model Ecriture {
+  id      String @id @default(uuid())
+  /// Numéro séquentiel par journal et par exercice : VE-2026-000001
+  /// Attribué à la validation, jamais au brouillon.
+  numero  String? @unique
+
+  journalId  String
+  journal    Journal  @relation(fields: [journalId], references: [id])
+  exerciceId String
+  exercice   Exercice @relation(fields: [exerciceId], references: [id])
+
+  /// Date de comptabilisation (détermine l'exercice de rattachement)
+  dateEcriture DateTime
+  /// Date de la pièce justificative
+  datePiece    DateTime?
+  /// Référence de la pièce : numéro de facture, de paiement, de dossier
+  reference    String?
+  libelle      String
+
+  statut StatutEcriture @default(BROUILLON)
+
+  /// Totaux dénormalisés, recalculés à chaque écriture des lignes.
+  /// Évite une agrégation sur toutes les lignes pour afficher un journal.
+  totalDebit  Decimal @default(0) @db.Decimal(15, 2)
+  totalCredit Decimal @default(0) @db.Decimal(15, 2)
+
+  /// Traçabilité de l'origine : FACTURE, PAIEMENT, AJUSTEMENT, MANUEL
+  sourceType String?
+  sourceId   String?
+  /// Rattachement au Dossier Logistique Numérique Unique (lot D)
+  dlnuRef    String?
+
+  /// Écriture d'extourne : lien vers l'écriture annulée
+  extourneDeId String?   @unique
+  extourneDe   Ecriture? @relation("Extourne", fields: [extourneDeId], references: [id])
+  extourneePar Ecriture? @relation("Extourne")
+
+  valideeLe  DateTime?
+  valideePar String?
+  creePar    String?
+
+  lignes LigneEcriture[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([dateEcriture])
+  @@index([statut])
+  @@index([reference])
+  @@index([dlnuRef])
+  @@index([sourceType, sourceId])
+  @@map("ecritures")
+}
+
+model LigneEcriture {
+  id         String   @id @default(uuid())
+  ecritureId String
+  ecriture   Ecriture @relation(fields: [ecritureId], references: [id], onDelete: Cascade)
+
+  compteId String
+  compte   CompteComptable @relation(fields: [compteId], references: [id])
+
+  /// Compte auxiliaire : code client ou fournisseur rattaché au compte collectif
+  tiersCode String?
+  libelle   String
+
+  /// Une ligne porte soit un débit, soit un crédit, jamais les deux.
+  /// Le contrôle est applicatif : Prisma ne sait pas exprimer cette contrainte.
+  debit  Decimal @default(0) @db.Decimal(15, 2)
+  credit Decimal @default(0) @db.Decimal(15, 2)
+
+  ordre Int @default(0)
+
+  createdAt DateTime @default(now())
+
+  @@index([ecritureId])
+  @@index([compteId])
+  @@index([tiersCode])
+  @@map("lignes_ecriture")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Ajustements comptables
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Seul point du cahier des charges qui mentionne la comptabilité :
+/// « Crédit d'ajustements comptables validés » sur le Compte Logistique
+/// Numérique. Un ajustement validé génère une écriture et notifie le CLN.
+
+enum StatutAjustement {
+  DEMANDE
+  VALIDE
+  REJETE
+}
+
+enum SensAjustement {
+  CREDIT // en faveur du client
+  DEBIT  // à la charge du client
+}
+
+model AjustementComptable {
+  id        String @id @default(uuid())
+  /// Référence lisible : SAY-AJU-20260919-00001
+  reference String @unique
+
+  clientId   String
+  clientNom  String?
+  /// Référence CLN du compte à mouvementer
+  compteCln  String?
+
+  sens    SensAjustement
+  montant Decimal        @db.Decimal(15, 2)
+  devise  String         @default("XOF")
+
+  motif      String
+  pieceJointe String?
+  /// Rattachement au dossier logistique concerné
+  dossierRef String?
+  factureRef String?
+
+  statut StatutAjustement @default(DEMANDE)
+
+  demandePar String
+  valideePar String?
+  valideeLe  DateTime?
+  motifRejet String?
+
+  /// Écriture générée à la validation
+  ecritureId String?
+  /// Indique si le crédit a bien été transmis au service paiement
+  clnNotifie Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([clientId])
+  @@index([statut])
+  @@map("ajustements_comptables")
+}
