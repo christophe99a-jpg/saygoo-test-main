@@ -7,21 +7,27 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+/// Cycle de vie defini par le cahier des charges :
+/// CREE -> INITIE -> EN_ATTENTE_CONFIRMATION -> CONFIRME -> RAPPROCHE
+/// avec sorties ECHEC, REMBOURSEMENT_DEMANDE ou ANNULE.
+/// Les transitions autorisees sont dans src/services/paiement.etats.js
 enum StatutPaiement {
-  EN_ATTENTE
-  EN_COURS
-  SUCCES
+  CREE
+  INITIE
+  EN_ATTENTE_CONFIRMATION
+  CONFIRME
+  RAPPROCHE
   ECHEC
-  REMBOURSE
+  REMBOURSEMENT_DEMANDE
   ANNULE
 }
 
+/// Le cahier des charges limite les moyens a quatre : virement bancaire
+/// et VISA Business via Ecobank, Flooz et T-Money via PayGate Global.
+/// ESPECES, CARTE_BANCAIRE, WAVE et MOBILE_MONEY sont retires.
 enum MethodePaiement {
-  MOBILE_MONEY
   VIREMENT_BANCAIRE
-  ESPECES
-  CARTE_BANCAIRE
-  WAVE
+  VISA_BUSINESS
   FLOOZ
   TMONEY
 }
@@ -46,7 +52,7 @@ model Paiement {
   montant         Float
   devise          DeviseCode      @default(XOF)
   methode         MethodePaiement
-  statut          StatutPaiement  @default(EN_ATTENTE)
+  statut          StatutPaiement  @default(CREE)
   referenceExterne String?
   numeroTransaction String?
   notes           String?
@@ -56,6 +62,22 @@ model Paiement {
   dateEcheance    DateTime?
   datePaiement    DateTime?
   webhookData     Json?
+
+  /// Rapprochement : renseignes au passage CONFIRME -> RAPPROCHE.
+  /// Ce sont eux qui relient le paiement a la chaine
+  /// Client / Dossier / Conteneur / Service / Facture / Prestataire.
+  conteneurNum    String?
+  serviceRendu    String?
+  prestataire     String?
+  rapprochePar    String?
+  rapprocheLe     DateTime?
+  /// Rattachement au Dossier Logistique Numerique Unique (lot D)
+  dlnuRef         String?
+
+  /// Numero du recu, attribue a la premiere emission puis conserve :
+  /// REC-2026-008742. Unique : un paiement a un seul recu en circulation.
+  numeroRecu      String?         @unique
+
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
 
@@ -65,6 +87,8 @@ model Paiement {
   @@index([factureId])
   @@index([statut])
   @@index([reference])
+  @@index([dlnuRef])
+  @@index([conteneurNum])
 }
 
 model TentativePaiement {

@@ -1,41 +1,17 @@
-const prisma = require('../config/prisma');
-
 /**
- * Génère une référence unique pour un paiement
- * Format : PAY-2025-000001
+ * Compatibilité : les noms historiques sont conservés pour ne pas modifier
+ * compte.controller.js, mais délèguent désormais aux séquences PostgreSQL.
+ *
+ * L'ancienne implémentation reposait sur `count() + 1`, qui produisait des
+ * références en double dès que deux opérations étaient simultanées.
+ * Nouveau format : SAY-PAY-AAAAMMJJ-NNNNN et SAY-INS-AAAAMMJJ-NNNNN.
  */
-const generateReference = async () => {
-  const year = new Date().getFullYear();
-  const prefix = `PAY-${year}-`;
+const {
+  genererReferencePaiement,
+  genererReferenceInstruction
+} = require('../services/paiement.etats');
 
-  const count = await prisma.paiement.count({
-    where: {
-      reference: { startsWith: prefix }
-    }
-  });
-
-  const numero = String(count + 1).padStart(6, '0');
-  return `${prefix}${numero}`;
+module.exports = {
+  generateReference: genererReferencePaiement,
+  generateInstructionReference: genererReferenceInstruction
 };
-
-module.exports = { generateReference };
-
-/**
- * Génère une référence unique pour une instruction de paiement (CLN)
- * Format : INS-2025-000001
- */
-const generateInstructionReference = async () => {
-  const year = new Date().getFullYear();
-  const prefix = `INS-${year}-`;
-
-  const count = await prisma.instructionPaiement.count({
-    where: {
-      reference: { startsWith: prefix }
-    }
-  });
-
-  const numero = String(count + 1).padStart(6, '0');
-  return `${prefix}${numero}`;
-};
-
-module.exports = { generateReference, generateInstructionReference };

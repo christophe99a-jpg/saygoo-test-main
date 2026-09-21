@@ -25,7 +25,16 @@ const authenticate = async (req, res, next) => {
     return res.status(401).json({ success: false, message });
   }
 
-  req.user = decoded;
+  // Le jeton émis par auth-service nomme l'organisation « organisationId ».
+  // Les contrôleurs de ce service lisent historiquement « orgId ». Sans cette
+  // correspondance, orgId valait toujours undefined : le filtrage par
+  // organisation ne s'appliquait jamais et chaque utilisateur voyait les
+  // données de toutes les organisations. On expose les deux noms.
+  req.user = {
+    ...decoded,
+    orgId: decoded.orgId ?? decoded.organisationId,
+    organisationId: decoded.organisationId ?? decoded.orgId
+  };
   next();
 };
 

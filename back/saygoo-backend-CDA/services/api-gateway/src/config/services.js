@@ -53,6 +53,30 @@ const services = [
     cible: process.env.PAYMENT_SERVICE_URL || 'http://localhost:3006',
     prefixeCible: '/compte',
   },
+  // ── Routes publiques du service paiement ─────────────────────────────────────
+  // Elles DOIVENT rester avant '/paiements' : les routes sont montées dans
+  // l'ordre du tableau, et '/paiements' capturerait sinon ces chemins en
+  // exigeant un jeton.
+  //
+  // Webhooks : PayGate et Ecobank n'ont pas de jeton SAYGOO. La sécurité
+  // repose sur la signature HMAC, vérifiée par le service paiement. La
+  // gateway ne lit pas le corps des requêtes, qui arrive donc intact et
+  // garde une signature valide.
+  {
+    prefixe: '/paiements/webhook',
+    cible: process.env.PAYMENT_SERVICE_URL || 'http://localhost:3006',
+    prefixeCible: '/paiements/webhook',
+    public: true,
+  },
+  // Vérification des reçus : appelée en scannant le QR code, par un tiers
+  // (douane, banque) qui n'a pas de compte SAYGOO. Protégée par la
+  // signature contenue dans le QR code.
+  {
+    prefixe: '/recus',
+    cible: process.env.PAYMENT_SERVICE_URL || 'http://localhost:3006',
+    prefixeCible: '/recus',
+    public: true,
+  },
   {
     prefixe: '/paiements',
     cible: process.env.PAYMENT_SERVICE_URL || 'http://localhost:3006',

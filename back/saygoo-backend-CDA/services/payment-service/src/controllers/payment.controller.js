@@ -1,8 +1,127 @@
 const prisma = require('../config/prisma');
-const { generateReference } = require('../utils/reference');
 const logger = require('../utils/logger');
+const {
+  STATUTS,
+  STATUTS_FIGES_WEBHOOK,
+  LIBELLES,
+  verifierTransition,
+  traduireStatutPrestataire,
+  genererReferencePaiement
+} = require('../services/paiement.etats');
 
-// ── INITIER UN PAIEMENT ───────────────────────────────────────────────────────
+/**
+ * Les quatre moyens de paiement retenus par le cahier des charges.
+ * Le schéma Prisma les impose aussi, mais on vérifie ici pour renvoyer
+ * un 400 lisible plutôt qu'une erreur Prisma incompréhensible.
+ */
+const METHODES = {
+  VIREMENT_BANCAIRE: { prestataire: 'ECOBANK', mobileMoney: false },
+  VISA_BUSINESS: { prestataire: 'ECOBANK', mobileMoney: false },
+  FLOOZ: { prestataire: 'PAYGATE_GLOBAL', mobileMoney: true },
+  TMONEY: { prestataire: 'PAYGATE_GLOBAL', mobileMoney: true }
+};
+
+const erreurInterne = (res) =>
+  res.status(500).json({ success: false, message: 'Erreur interne.' });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Transition unique
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Seul point d'entrée pour changer le statut d'un paiement.
+ *
+ * Tout changement d'état passe par ici : la transition est validée par la
+ * machine à états, puis le statut et la ligne de timeline sont écrits dans
+ * la même transaction. Aucun contrôleur n'écrit plus `statut` directement,
+ * ce qui garantit que la timeline reste complète.
+ *
+ * @param {object} paiement  Paiement actuel
+ * @param {string} vers      Statut cible
+ * @param {object} options
+ * @param {string} options.message  Libellé de l'événement pour la timeline
+ * @param {object} [options.champs] Champs supplémentaires à mettre à jour
+ * @param {object} [options.data]   Données brutes à archiver
+ * @param {object} [options.client] Transaction Prisma en cours
+ * @returns {Promise<{ok: boolean, paiement?: object, raison?: string, terminal?: boolean}>}
+ */
+const appliquerTransition = async (paiement, vers, options = {}) => {
+  const controle = verifierTransition(paiement.statut, vers);
+  if (!controle.valide) {
+    return { ok: false, raison: controle.raison, terminal: controle.terminal };
+  }
+
+  const executer = async (tx) => {
+    const maj = await tx.paiement.update({
+      where: { id: paiement.id },
+      data: { statut: vers, ...(options.champs || {}) }
+    });
+
+    await tx.tentativePaiement.create({
+      data: {
+        paiementId: paiement.id,
+        statut: vers,
+        message: options.message || LIBELLES[vers].texte,
+        data: options.data || {}
+      }
+    });
+
+    return maj;
+  };
+
+  const maj = options.client
+    ? await executer(options.client)
+    : await prisma.$transaction(executer);
+
+  return { ok: true, paiement: maj };
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Initiation
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Instructions affichées au client selon le moyen choisi.
+ *
+ * Mobile Money : le client doit valider sur son téléphone, d'où le passage
+ * direct en attente de confirmation. Virement et carte : la demande est
+ * initiée, la confirmation viendra d'Ecobank.
+ *
+ * Ces instructions sont provisoires : les vrais parcours dépendent des API
+ * Ecobank et PayGate (lots B5 et B6).
+ */
+const preparerInitiation = (paiement) => {
+  const horodatage = Date.now();
+
+  switch (paiement.methode) {
+    case 'FLOOZ':
+      return {
+        statutCible: STATUTS.EN_ATTENTE_CONFIRMATION,
+        referenceExterne: `PG-FLOOZ-${horodatage}`,
+        instructions: 'Validez le paiement sur votre téléphone Flooz.'
+      };
+    case 'TMONEY':
+      return {
+        statutCible: STATUTS.EN_ATTENTE_CONFIRMATION,
+        referenceExterne: `PG-TMONEY-${horodatage}`,
+        instructions: 'Validez le paiement sur votre téléphone T-Money.'
+      };
+    case 'VISA_BUSINESS':
+      return {
+        statutCible: STATUTS.INITIE,
+        referenceExterne: `ECO-VISA-${horodatage}`,
+        instructions: 'Vous allez être redirigé vers la page de paiement sécurisée Ecobank.'
+      };
+    case 'VIREMENT_BANCAIRE':
+    default:
+      return {
+        statutCible: STATUTS.INITIE,
+        referenceExterne: `ECO-VIR-${horodatage}`,
+        instructions: `Effectuez le virement en indiquant la référence ${paiement.reference}.`
+      };
+  }
+};
+
 const initierPaiement = async (req, res) => {
   try {
     const {
@@ -11,130 +130,340 @@ const initierPaiement = async (req, res) => {
       montant, devise, methode, notes, dateEcheance
     } = req.body;
 
-    const reference = await generateReference();
+    if (!clientId || !clientNom || !montant || !methode) {
+      return res.status(400).json({
+        success: false,
+        message: 'Client, montant et moyen de paiement sont obligatoires.'
+      });
+    }
 
-    const paiement = await prisma.paiement.create({
-      data: {
-        reference,
-        factureId,
-        factureNum,
-        dossierId,
-        dossierRef,
-        clientId,
-        clientNom,
-        clientTel,
-        montant: parseFloat(montant),
-        devise: devise || 'XOF',
-        methode,
-        notes,
-        agentId: req.user?.sub,
-        agentNom: req.user ? `${req.user.firstName} ${req.user.lastName}` : null,
-        organisationId: req.user?.orgId,
-        dateEcheance: dateEcheance ? new Date(dateEcheance) : null
-      },
-      include: { tentatives: true }
-    });
+    if (!METHODES[methode]) {
+      return res.status(400).json({
+        success: false,
+        message: `Moyen de paiement non accepté : ${methode}. ` +
+          `Acceptés : ${Object.keys(METHODES).join(', ')}.`
+      });
+    }
 
-    // Simuler l'initiation selon la méthode
-    const resultat = await initierSelonMethode(paiement);
+    const valeur = parseFloat(montant);
+    if (!Number.isFinite(valeur) || valeur <= 0) {
+      return res.status(400).json({ success: false, message: 'Montant invalide.' });
+    }
 
-    // Enregistrer la tentative
-    await prisma.tentativePaiement.create({
-      data: {
-        paiementId: paiement.id,
-        statut: resultat.statut,
-        message: resultat.message,
-        data: resultat.data || {}
+    const resultat = await prisma.$transaction(async (tx) => {
+      const reference = await genererReferencePaiement(tx);
+
+      const cree = await tx.paiement.create({
+        data: {
+          reference,
+          factureId, factureNum, dossierId, dossierRef,
+          clientId, clientNom, clientTel,
+          montant: valeur,
+          devise: devise || 'XOF',
+          methode,
+          notes,
+          prestataire: METHODES[methode].prestataire,
+          statut: STATUTS.CREE,
+          agentId: req.user?.sub,
+          agentNom: req.user ? `${req.user.firstName || ''} ${req.user.lastName || ''}`.trim() || null : null,
+          organisationId: req.user?.orgId,
+          dateEcheance: dateEcheance ? new Date(dateEcheance) : null
+        }
+      });
+
+      // Trace de la création : premier jalon de la timeline.
+      await tx.tentativePaiement.create({
+        data: {
+          paiementId: cree.id,
+          statut: STATUTS.CREE,
+          message: 'Paiement créé',
+          data: { factureNum, dossierRef }
+        }
+      });
+
+      const preparation = preparerInitiation(cree);
+
+      // CREE -> INITIE est toujours la première étape...
+      const initie = await appliquerTransition(cree, STATUTS.INITIE, {
+        client: tx,
+        message: `Paiement initié auprès de ${METHODES[methode].prestataire}`,
+        champs: { referenceExterne: preparation.referenceExterne },
+        data: { referenceExterne: preparation.referenceExterne }
+      });
+
+      let final = initie.paiement;
+
+      // ...puis, pour le Mobile Money, attente de la validation client.
+      if (preparation.statutCible === STATUTS.EN_ATTENTE_CONFIRMATION) {
+        const attente = await appliquerTransition(final, STATUTS.EN_ATTENTE_CONFIRMATION, {
+          client: tx,
+          message: 'En attente de validation sur le téléphone du client'
+        });
+        final = attente.paiement;
       }
+
+      return { paiement: final, instructions: preparation.instructions };
     });
 
-    // Mettre à jour le statut
-    const updated = await prisma.paiement.update({
-      where: { id: paiement.id },
-      data: {
-        statut: resultat.statut === 'SUCCESS' ? 'EN_COURS' : 'EN_ATTENTE',
-        referenceExterne: resultat.referenceExterne
-      },
-      include: { tentatives: true }
+    logger.info('Paiement initié', {
+      reference: resultat.paiement.reference,
+      methode,
+      userId: req.user?.sub
     });
-
-    logger.info('Paiement initié', { reference, methode, userId: req.user?.sub });
 
     return res.status(201).json({
       success: true,
-      message: `Paiement ${reference} initié avec succès.`,
-      data: { paiement: updated, instructions: resultat.instructions }
+      message: `Paiement ${resultat.paiement.reference} initié.`,
+      data: resultat
     });
   } catch (err) {
-    logger.error('Erreur initiation paiement', { err: err.message });
-    return res.status(500).json({ success: false, message: err.message });
+    logger.error('Erreur initiation paiement', { err: err.message, stack: err.stack });
+    return erreurInterne(res);
   }
 };
 
-// ── CONFIRMER UN PAIEMENT ─────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// Changements de statut manuels
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Charge un paiement et renvoie 404 s'il n'existe pas.
+ * Renvoie null quand la réponse a déjà été envoyée.
+ */
+const chargerPaiement = async (id, res) => {
+  const paiement = await prisma.paiement.findUnique({ where: { id } });
+  if (!paiement) {
+    res.status(404).json({ success: false, message: 'Paiement non trouvé.' });
+    return null;
+  }
+  return paiement;
+};
+
+const refuserTransition = (res, resultat) =>
+  res.status(409).json({ success: false, message: resultat.raison });
+
 const confirmerPaiement = async (req, res) => {
   try {
-    const { id } = req.params;
+    const paiement = await chargerPaiement(req.params.id, res);
+    if (!paiement) return;
+
     const { numeroTransaction, notes } = req.body;
 
-    const paiement = await prisma.paiement.findUnique({ where: { id } });
+    const resultat = await appliquerTransition(paiement, STATUTS.CONFIRME, {
+      message: 'Paiement confirmé manuellement',
+      champs: { numeroTransaction, notes, datePaiement: new Date() },
+      data: { numeroTransaction, par: req.user?.sub }
+    });
+
+    if (!resultat.ok) return refuserTransition(res, resultat);
+
+    logger.info('Paiement confirmé', { id: paiement.id, par: req.user?.sub });
+    return res.json({
+      success: true,
+      message: 'Paiement confirmé.',
+      data: { paiement: resultat.paiement }
+    });
+  } catch (err) {
+    logger.error('Erreur confirmation paiement', { err: err.message });
+    return erreurInterne(res);
+  }
+};
+
+/**
+ * PATCH /paiements/:id/rapprocher
+ *
+ * Rattache un paiement confirmé à la chaîne complète du cahier des charges :
+ * Client / Dossier / Conteneur / Service / Facture / Prestataire / Transaction.
+ * C'est ce passage qui fait du CLN un outil de contrôle financier.
+ */
+const rapprocherPaiement = async (req, res) => {
+  try {
+    const paiement = await chargerPaiement(req.params.id, res);
+    if (!paiement) return;
+
+    const { conteneurNum, serviceRendu, dossierRef, factureNum, dlnuRef } = req.body;
+
+    // Le rapprochement n'a de sens que si le paiement est rattaché à quelque
+    // chose : on exige au moins une facture ou un dossier.
+    const factureFinale = factureNum || paiement.factureNum;
+    const dossierFinal = dossierRef || paiement.dossierRef;
+    if (!factureFinale && !dossierFinal) {
+      return res.status(400).json({
+        success: false,
+        message: 'Un rapprochement exige au moins une facture ou un dossier.'
+      });
+    }
+
+    const resultat = await appliquerTransition(paiement, STATUTS.RAPPROCHE, {
+      message: `Rapproché${factureFinale ? ` avec la facture ${factureFinale}` : ''}`,
+      champs: {
+        conteneurNum: conteneurNum || paiement.conteneurNum,
+        serviceRendu: serviceRendu || paiement.serviceRendu,
+        dossierRef: dossierFinal,
+        factureNum: factureFinale,
+        dlnuRef: dlnuRef || paiement.dlnuRef,
+        rapprochePar: req.user?.sub || null,
+        rapprocheLe: new Date()
+      },
+      data: { conteneurNum, serviceRendu, dossierRef: dossierFinal, factureNum: factureFinale }
+    });
+
+    if (!resultat.ok) return refuserTransition(res, resultat);
+
+    logger.info('Paiement rapproché', { id: paiement.id, par: req.user?.sub });
+    return res.json({
+      success: true,
+      message: 'Paiement rapproché.',
+      data: { paiement: resultat.paiement }
+    });
+  } catch (err) {
+    logger.error('Erreur rapprochement', { err: err.message });
+    return erreurInterne(res);
+  }
+};
+
+const demanderRemboursement = async (req, res) => {
+  try {
+    const paiement = await chargerPaiement(req.params.id, res);
+    if (!paiement) return;
+
+    const { motif } = req.body;
+    if (!motif) {
+      return res.status(400).json({ success: false, message: 'Le motif est obligatoire.' });
+    }
+
+    const resultat = await appliquerTransition(paiement, STATUTS.REMBOURSEMENT_DEMANDE, {
+      message: `Remboursement demandé : ${motif}`,
+      champs: { notes: motif },
+      data: { motif, par: req.user?.sub }
+    });
+
+    if (!resultat.ok) return refuserTransition(res, resultat);
+
+    return res.json({
+      success: true,
+      message: 'Remboursement demandé.',
+      data: { paiement: resultat.paiement }
+    });
+  } catch (err) {
+    logger.error('Erreur demande de remboursement', { err: err.message });
+    return erreurInterne(res);
+  }
+};
+
+const annulerPaiement = async (req, res) => {
+  try {
+    const paiement = await chargerPaiement(req.params.id, res);
+    if (!paiement) return;
+
+    const { motif } = req.body;
+
+    const resultat = await appliquerTransition(paiement, STATUTS.ANNULE, {
+      message: `Annulé${motif ? ` : ${motif}` : ''}`,
+      champs: { notes: motif || 'Annulé' },
+      data: { motif, par: req.user?.sub }
+    });
+
+    if (!resultat.ok) return refuserTransition(res, resultat);
+
+    logger.info('Paiement annulé', { id: paiement.id, par: req.user?.sub });
+    return res.json({
+      success: true,
+      message: 'Paiement annulé.',
+      data: { paiement: resultat.paiement }
+    });
+  } catch (err) {
+    logger.error('Erreur annulation paiement', { err: err.message });
+    return erreurInterne(res);
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Webhook
+// ─────────────────────────────────────────────────────────────────────────────
+
+const webhook = async (req, res) => {
+  try {
+    const { reference, statut, numeroTransaction, data } = req.body;
+
+    if (!reference) {
+      return res.status(400).json({ success: false, message: 'Référence absente.' });
+    }
+
+    const paiement = await prisma.paiement.findFirst({ where: { reference } });
     if (!paiement) {
       return res.status(404).json({ success: false, message: 'Paiement non trouvé.' });
     }
 
-    if (paiement.statut === 'SUCCES') {
-      return res.status(400).json({ success: false, message: 'Paiement déjà confirmé.' });
+    // Idempotence : un prestataire rejoue ses webhooks tant qu'il n'a pas
+    // reçu de 200. Un paiement figé (rapproché ou terminé) n'est plus modifié,
+    // et on répond 200 pour que le prestataire cesse de réessayer.
+    if (STATUTS_FIGES_WEBHOOK.includes(paiement.statut)) {
+      logger.info('Webhook ignoré (paiement figé)', { reference, statutActuel: paiement.statut });
+      return res.json({ success: true, message: 'Paiement déjà traité.', idempotent: true });
     }
 
-    const updated = await prisma.paiement.update({
-      where: { id },
-      data: {
-        statut: 'SUCCES',
-        numeroTransaction,
-        notes,
-        datePaiement: new Date()
+    const cible = traduireStatutPrestataire(statut);
+    if (!cible) {
+      // Statut inconnu : on ne devine pas. On trace et on répond 200 pour
+      // ne pas déclencher de rejeu en boucle, mais sans rien modifier.
+      logger.warn('Webhook : statut prestataire inconnu', { reference, statut });
+      return res.json({ success: true, message: 'Statut ignoré.', ignore: true });
+    }
+
+    // Un rejeu de la même notification est un non-événement.
+    if (cible === paiement.statut) {
+      return res.json({ success: true, message: 'Paiement déjà traité.', idempotent: true });
+    }
+
+    const resultat = await appliquerTransition(paiement, cible, {
+      message: `Notification ${paiement.prestataire || 'prestataire'} : ${statut}`,
+      champs: {
+        numeroTransaction: numeroTransaction || paiement.numeroTransaction,
+        webhookData: data || {},
+        ...(cible === STATUTS.CONFIRME ? { datePaiement: new Date() } : {})
       },
-      include: { tentatives: true }
+      data: data || {}
     });
 
-    await prisma.tentativePaiement.create({
-      data: {
-        paiementId: id,
-        statut: 'SUCCES',
-        message: 'Paiement confirmé manuellement',
-        data: { numeroTransaction }
-      }
-    });
+    if (!resultat.ok) {
+      // Transition refusée (par exemple une confirmation après annulation) :
+      // on le trace, et on répond 200 pour stopper les rejeux.
+      logger.warn('Webhook : transition refusée', {
+        reference, depuis: paiement.statut, vers: cible, raison: resultat.raison
+      });
+      return res.json({ success: true, message: 'Transition ignorée.', ignore: true });
+    }
 
-    logger.info('Paiement confirmé', { id, numeroTransaction });
-
-    return res.json({
-      success: true,
-      message: 'Paiement confirmé avec succès.',
-      data: { paiement: updated }
-    });
+    logger.info('Webhook traité', { reference, statut: cible });
+    return res.json({ success: true, message: 'Webhook traité.' });
   } catch (err) {
-    logger.error('Erreur confirmation paiement', { err: err.message });
-    return res.status(500).json({ success: false, message: err.message });
+    logger.error('Erreur webhook', { err: err.message, stack: err.stack });
+    return erreurInterne(res);
   }
 };
 
-// ── LISTE DES PAIEMENTS ───────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// Consultation
+// ─────────────────────────────────────────────────────────────────────────────
+
 const listerPaiements = async (req, res) => {
   try {
-    const {
-      page = 1, limit = 10, statut,
-      methode, clientId, dateDebut, dateFin
-    } = req.query;
+    const { page = 1, limit = 10, statut, methode, clientId, dateDebut, dateFin } = req.query;
 
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const taille = Math.min(parseInt(limit, 10) || 10, 100);
+    const skip = (Math.max(parseInt(page, 10) || 1, 1) - 1) * taille;
     const where = {};
 
-    if (statut) where.statut = statut;
+    if (statut) {
+      if (!STATUTS[statut]) {
+        return res.status(400).json({ success: false, message: `Statut inconnu : ${statut}.` });
+      }
+      where.statut = statut;
+    }
     if (methode) where.methode = methode;
     if (clientId) where.clientId = clientId;
     if (req.user?.orgId) where.organisationId = req.user.orgId;
-
     if (dateDebut || dateFin) {
       where.createdAt = {};
       if (dateDebut) where.createdAt.gte = new Date(dateDebut);
@@ -143,11 +472,9 @@ const listerPaiements = async (req, res) => {
 
     const [paiements, total] = await Promise.all([
       prisma.paiement.findMany({
-        where,
-        skip,
-        take: parseInt(limit),
+        where, skip, take: taille,
         orderBy: { createdAt: 'desc' },
-        include: { tentatives: true }
+        include: { tentatives: { orderBy: { createdAt: 'asc' } } }
       }),
       prisma.paiement.count({ where })
     ]);
@@ -158,245 +485,147 @@ const listerPaiements = async (req, res) => {
         paiements,
         pagination: {
           total,
-          page: parseInt(page),
-          limit: parseInt(limit),
-          totalPages: Math.ceil(total / parseInt(limit))
+          page: parseInt(page, 10) || 1,
+          limit: taille,
+          totalPages: Math.ceil(total / taille)
         }
       }
     });
   } catch (err) {
     logger.error('Erreur liste paiements', { err: err.message });
-    return res.status(500).json({ success: false, message: err.message });
+    return erreurInterne(res);
   }
 };
 
-// ── DÉTAIL D'UN PAIEMENT ──────────────────────────────────────────────────────
 const getPaiement = async (req, res) => {
   try {
-    const { id } = req.params;
-
     const paiement = await prisma.paiement.findUnique({
-      where: { id },
-      include: { tentatives: true }
+      where: { id: req.params.id },
+      include: { tentatives: { orderBy: { createdAt: 'asc' } } }
     });
 
     if (!paiement) {
       return res.status(404).json({ success: false, message: 'Paiement non trouvé.' });
     }
-
-    return res.json({ success: true, data: { paiement } });
-  } catch (err) {
-    logger.error('Erreur get paiement', { err: err.message });
-    return res.status(500).json({ success: false, message: err.message });
-  }
-};
-
-// ── ANNULER UN PAIEMENT ───────────────────────────────────────────────────────
-const annulerPaiement = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { motif } = req.body;
-
-    const paiement = await prisma.paiement.findUnique({ where: { id } });
-    if (!paiement) {
-      return res.status(404).json({ success: false, message: 'Paiement non trouvé.' });
-    }
-
-    if (paiement.statut === 'SUCCES') {
-      return res.status(400).json({
-        success: false,
-        message: 'Un paiement réussi ne peut pas être annulé.'
-      });
-    }
-
-    const updated = await prisma.paiement.update({
-      where: { id },
-      data: { statut: 'ANNULE', notes: motif || 'Annulé' },
-      include: { tentatives: true }
-    });
-
-    logger.info('Paiement annulé', { id, userId: req.user?.sub });
 
     return res.json({
       success: true,
-      message: 'Paiement annulé.',
-      data: { paiement: updated }
+      data: { paiement, libelleStatut: LIBELLES[paiement.statut] }
     });
   } catch (err) {
-    logger.error('Erreur annulation paiement', { err: err.message });
-    return res.status(500).json({ success: false, message: err.message });
+    logger.error('Erreur lecture paiement', { err: err.message });
+    return erreurInterne(res);
   }
 };
 
-// ── WEBHOOK ───────────────────────────────────────────────────────────────────
-const webhook = async (req, res) => {
+/**
+ * GET /paiements/:id/timeline   (lot B7)
+ *
+ * La timeline de la fiche transaction du cahier des charges :
+ *   14:02 Paiement créé
+ *   14:05 Paiement initié auprès de PAYGATE_GLOBAL
+ *   14:06 Notification PAYGATE_GLOBAL : SUCCESS
+ *   14:07 Rapproché avec la facture INV-2026-00452
+ *
+ * Chaque transition étant écrite par appliquerTransition(), la timeline
+ * est complète par construction.
+ */
+const getTimeline = async (req, res) => {
   try {
-    const { reference, statut, numeroTransaction, data } = req.body;
-
-    if (!reference) {
-      return res.status(400).json({ success: false, message: 'Référence absente.' });
-    }
-
-    const paiement = await prisma.paiement.findFirst({
-      where: { reference }
+    const paiement = await prisma.paiement.findUnique({
+      where: { id: req.params.id },
+      include: { tentatives: { orderBy: { createdAt: 'asc' } } }
     });
 
     if (!paiement) {
       return res.status(404).json({ success: false, message: 'Paiement non trouvé.' });
     }
 
-    // Idempotence : un prestataire rejoue ses webhooks tant qu'il n'a pas reçu
-    // un 200. Sans ce garde-fou, un rejeu peut faire repasser un paiement
-    // confirmé à ECHEC, ou dupliquer les lignes de TentativePaiement.
-    const STATUTS_FINAUX = ['SUCCES', 'ECHEC', 'REMBOURSE', 'ANNULE'];
-    if (STATUTS_FINAUX.includes(paiement.statut)) {
-      logger.info('Webhook ignoré (paiement déjà final)', {
-        reference,
-        statutActuel: paiement.statut
-      });
-      return res.json({
-        success: true,
-        message: 'Paiement déjà traité.',
-        idempotent: true
-      });
-    }
+    const evenements = paiement.tentatives.map((t) => ({
+      date: t.createdAt,
+      statut: t.statut,
+      libelle: t.message || LIBELLES[t.statut]?.texte || t.statut,
+      couleur: LIBELLES[t.statut]?.couleur || 'gris'
+    }));
 
-    const nouveauStatut = statut === 'SUCCESS' ? 'SUCCES' : 'ECHEC';
-
-    // Mise à jour et trace dans la même transaction : soit les deux, soit aucune.
-    await prisma.$transaction([
-      prisma.paiement.update({
-        where: { id: paiement.id },
-        data: {
-          statut: nouveauStatut,
-          numeroTransaction,
-          webhookData: data || {},
-          datePaiement: nouveauStatut === 'SUCCES' ? new Date() : null
-        }
-      }),
-      prisma.tentativePaiement.create({
-        data: {
-          paiementId: paiement.id,
-          statut: nouveauStatut,
-          message: `Webhook reçu : ${statut}`,
-          data: data || {}
-        }
-      })
-    ]);
-
-    logger.info('Webhook paiement traité', { reference, statut: nouveauStatut });
-
-    return res.json({ success: true, message: 'Webhook traité.' });
+    return res.json({
+      success: true,
+      data: {
+        reference: paiement.reference,
+        statutActuel: paiement.statut,
+        libelleStatut: LIBELLES[paiement.statut],
+        evenements
+      }
+    });
   } catch (err) {
-    // On ne renvoie jamais err.message à l'appelant : cela divulguerait
-    // la structure interne (noms de tables, contraintes Prisma).
-    logger.error('Erreur webhook', { err: err.message, stack: err.stack });
-    return res.status(500).json({ success: false, message: 'Erreur interne.' });
+    logger.error('Erreur timeline', { err: err.message });
+    return erreurInterne(res);
   }
 };
 
-// ── STATISTIQUES ──────────────────────────────────────────────────────────────
+/**
+ * GET /paiements/statistiques
+ *
+ * « Encaissé » regroupe CONFIRME et RAPPROCHE : un paiement rapproché reste
+ * un paiement encaissé. « À rapprocher » isole les CONFIRME, c'est la file
+ * de travail du comptable.
+ */
 const getStatistiques = async (req, res) => {
   try {
     const where = {};
     if (req.user?.orgId) where.organisationId = req.user.orgId;
 
-    const [total, enAttente, enCours, succes, echec, annule] =
-      await Promise.all([
-        prisma.paiement.count({ where }),
-        prisma.paiement.count({ where: { ...where, statut: 'EN_ATTENTE' } }),
-        prisma.paiement.count({ where: { ...where, statut: 'EN_COURS' } }),
-        prisma.paiement.count({ where: { ...where, statut: 'SUCCES' } }),
-        prisma.paiement.count({ where: { ...where, statut: 'ECHEC' } }),
-        prisma.paiement.count({ where: { ...where, statut: 'ANNULE' } })
-      ]);
-
-    const totalEncaisse = await prisma.paiement.aggregate({
-      where: { ...where, statut: 'SUCCES' },
+    const groupes = await prisma.paiement.groupBy({
+      by: ['statut'],
+      where,
+      _count: { _all: true },
       _sum: { montant: true }
     });
+
+    const parStatut = Object.fromEntries(Object.keys(STATUTS).map((s) => [s, 0]));
+    const montantParStatut = Object.fromEntries(Object.keys(STATUTS).map((s) => [s, 0]));
+    let total = 0;
+
+    for (const g of groupes) {
+      parStatut[g.statut] = g._count._all;
+      montantParStatut[g.statut] = g._sum.montant || 0;
+      total += g._count._all;
+    }
+
+    const encaisse = montantParStatut.CONFIRME + montantParStatut.RAPPROCHE;
+    const enAttente = montantParStatut.CREE + montantParStatut.INITIE +
+      montantParStatut.EN_ATTENTE_CONFIRMATION;
 
     return res.json({
       success: true,
       data: {
         statistiques: {
           total,
-          parStatut: { enAttente, enCours, succes, echec, annule },
-          totalEncaisse: totalEncaisse._sum.montant || 0
+          parStatut,
+          totalEncaisse: encaisse,
+          totalEnAttente: enAttente,
+          aRapprocher: { nombre: parStatut.CONFIRME, montant: montantParStatut.CONFIRME }
         }
       }
     });
   } catch (err) {
     logger.error('Erreur statistiques', { err: err.message });
-    return res.status(500).json({ success: false, message: err.message });
-  }
-};
-
-// ── Helper : initier selon méthode ────────────────────────────────────────────
-const initierSelonMethode = async (paiement) => {
-  switch (paiement.methode) {
-    case 'FLOOZ':
-      return {
-        statut: 'SUCCESS',
-        message: 'Demande FLOOZ envoyée',
-        referenceExterne: `FLOOZ-${Date.now()}`,
-        instructions: 'Composez *144# pour confirmer le paiement.',
-        data: { provider: 'FLOOZ' }
-      };
-
-    case 'TMONEY':
-      return {
-        statut: 'SUCCESS',
-        message: 'Demande T-Money envoyée',
-        referenceExterne: `TMONEY-${Date.now()}`,
-        instructions: 'Composez *145# pour confirmer le paiement.',
-        data: { provider: 'TMONEY' }
-      };
-
-    case 'WAVE':
-      return {
-        statut: 'SUCCESS',
-        message: 'Lien Wave généré',
-        referenceExterne: `WAVE-${Date.now()}`,
-        instructions: 'Scannez le QR code Wave pour payer.',
-        data: { provider: 'WAVE' }
-      };
-
-    case 'VIREMENT_BANCAIRE':
-      return {
-        statut: 'SUCCESS',
-        message: 'Instructions de virement envoyées',
-        referenceExterne: `VIR-${Date.now()}`,
-        instructions: 'Effectuez le virement sur le compte SAYGOO avec la référence.',
-        data: { provider: 'BANQUE' }
-      };
-
-    case 'ESPECES':
-      return {
-        statut: 'SUCCESS',
-        message: 'Paiement en espèces enregistré',
-        referenceExterne: `ESP-${Date.now()}`,
-        instructions: 'Remettez le montant en espèces à l\'agent.',
-        data: { provider: 'ESPECES' }
-      };
-
-    default:
-      return {
-        statut: 'SUCCESS',
-        message: 'Paiement initié',
-        referenceExterne: `PAY-${Date.now()}`,
-        instructions: 'Suivez les instructions de paiement.',
-        data: {}
-      };
+    return erreurInterne(res);
   }
 };
 
 module.exports = {
   initierPaiement,
   confirmerPaiement,
-  listerPaiements,
-  getPaiement,
+  rapprocherPaiement,
+  demanderRemboursement,
   annulerPaiement,
   webhook,
-  getStatistiques
+  listerPaiements,
+  getPaiement,
+  getTimeline,
+  getStatistiques,
+  // exportés pour les tests
+  appliquerTransition,
+  METHODES
 };

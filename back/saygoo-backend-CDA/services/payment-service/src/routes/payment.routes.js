@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 
 const paymentController = require('../controllers/payment.controller');
+const recuController = require('../controllers/recu.controller');
 const { authenticate, authorize } = require('../middlewares/auth.middleware');
 const { verifierSignature } = require('../middlewares/webhook.middleware');
 
@@ -49,8 +50,7 @@ router.post(
   paymentController.initierPaiement
 );
 
-// GET /paiements/:id — Détail d'un paiement
-router.get('/:id', paymentController.getPaiement);
+
 
 // ── Actions sur un paiement ───────────────────────────────────────────────────
 
@@ -67,5 +67,29 @@ router.patch(
   authorize('SUPER_ADMIN', 'CDA', 'COMPTABLE'),
   paymentController.annulerPaiement
 );
+
+// PATCH /paiements/:id/rapprocher — Rattacher à facture, dossier, conteneur
+// Réservé au comptable : c'est l'acte qui engage le contrôle financier.
+router.patch(
+  '/:id/rapprocher',
+  authorize('SUPER_ADMIN', 'COMPTABLE'),
+  paymentController.rapprocherPaiement
+);
+
+// PATCH /paiements/:id/rembourser — Demander un remboursement
+router.patch(
+  '/:id/rembourser',
+  authorize('SUPER_ADMIN', 'COMPTABLE'),
+  paymentController.demanderRemboursement
+);
+
+// GET /paiements/:id/timeline — Historique des événements (lot B7)
+router.get('/:id/timeline', paymentController.getTimeline);
+
+// GET /paiements/:id/recu — Reçu PDF avec QR de vérification (lot B8)
+router.get('/:id/recu', recuController.telechargerRecu);
+
+// GET /paiements/:id — Détail d'un paiement
+router.get('/:id', paymentController.getPaiement);
 
 module.exports = router;

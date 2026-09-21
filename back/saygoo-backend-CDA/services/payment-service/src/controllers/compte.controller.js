@@ -2,8 +2,41 @@ const prisma = require('../config/prisma');
 const { generateInstructionReference } = require('../utils/reference');
 const logger = require('../utils/logger');
 
+// ── Erreurs ───────────────────────────────────────────────────────────────────
+
+/**
+ * Erreur levée quand l'utilisateur n'est rattaché à aucune organisation.
+ * Le CLN est un compte d'organisation : sans elle, il n'existe pas.
+ */
+const erreurSansOrganisation = () => {
+  const err = new Error('Aucune organisation rattachée au compte utilisateur.');
+  err.code = 'SANS_ORGANISATION';
+  return err;
+};
+
+/**
+ * Réponse d'erreur commune à tout le contrôleur.
+ *
+ * Le détail technique reste dans les logs et n'est jamais renvoyé au
+ * navigateur : un message Prisma révèle noms de tables et de colonnes.
+ */
+const repondreErreur = (res, err) => {
+  if (err.code === 'SANS_ORGANISATION') {
+    return res.status(403).json({
+      success: false,
+      message: "Votre compte n'est rattaché à aucune organisation : " +
+        "le Compte Logistique Numérique n'est pas disponible."
+    });
+  }
+  return res.status(500).json({ success: false, message: 'Erreur interne.' });
+};
+
 // ── Helper : récupérer ou créer le compte d'une organisation ──────────────────
 const getOrCreateCompte = async (organisationId) => {
+  // Sans ce garde-fou, Prisma recevait { organisationId: undefined } et
+  // levait une erreur de validation, renvoyée telle quelle en 500.
+  if (!organisationId) throw erreurSansOrganisation();
+
   let compte = await prisma.compteLogistique.findUnique({ where: { organisationId } });
   if (!compte) {
     compte = await prisma.compteLogistique.create({ data: { organisationId } });
@@ -29,7 +62,7 @@ const getSolde = async (req, res) => {
     });
   } catch (err) {
     logger.error('Erreur récupération solde CLN', { err: err.message });
-    return res.status(500).json({ success: false, message: err.message });
+    return repondreErreur(res, err);
   }
 };
 
@@ -74,7 +107,7 @@ const creerInstruction = async (req, res) => {
     });
   } catch (err) {
     logger.error('Erreur création instruction', { err: err.message });
-    return res.status(500).json({ success: false, message: err.message });
+    return repondreErreur(res, err);
   }
 };
 
@@ -99,7 +132,7 @@ const transmettreInstruction = async (req, res) => {
     return res.json({ success: true, message: 'Transmise au partenaire financier.', data: { instruction: updated } });
   } catch (err) {
     logger.error('Erreur transmission instruction', { err: err.message });
-    return res.status(500).json({ success: false, message: err.message });
+    return repondreErreur(res, err);
   }
 };
 
@@ -124,7 +157,7 @@ const traiterInstruction = async (req, res) => {
     return res.json({ success: true, message: 'En cours de traitement bancaire.', data: { instruction: updated } });
   } catch (err) {
     logger.error('Erreur traitement instruction', { err: err.message });
-    return res.status(500).json({ success: false, message: err.message });
+    return repondreErreur(res, err);
   }
 };
 
@@ -172,7 +205,7 @@ const validerInstruction = async (req, res) => {
     return res.json({ success: true, message: 'Paiement exécuté.', data: { instruction: updatedInstruction } });
   } catch (err) {
     logger.error('Erreur validation instruction', { err: err.message });
-    return res.status(500).json({ success: false, message: err.message });
+    return repondreErreur(res, err);
   }
 };
 
@@ -198,7 +231,7 @@ const refuserInstruction = async (req, res) => {
     return res.json({ success: true, message: 'Paiement rejeté.', data: { instruction: updated } });
   } catch (err) {
     logger.error('Erreur refus instruction', { err: err.message });
-    return res.status(500).json({ success: false, message: err.message });
+    return repondreErreur(res, err);
   }
 };
 
@@ -215,7 +248,7 @@ const listerInstructions = async (req, res) => {
     return res.json({ success: true, data: { instructions } });
   } catch (err) {
     logger.error('Erreur liste instructions', { err: err.message });
-    return res.status(500).json({ success: false, message: err.message });
+    return repondreErreur(res, err);
   }
 };
 
@@ -256,7 +289,7 @@ const crediterCompte = async (req, res) => {
     return res.status(201).json({ success: true, message: 'Compte crédité.', data: { operation } });
   } catch (err) {
     logger.error('Erreur crédit interne', { err: err.message });
-    return res.status(500).json({ success: false, message: err.message });
+    return repondreErreur(res, err);
   }
 };
 
@@ -304,7 +337,7 @@ const creerReservation = async (req, res) => {
     return res.status(201).json({ success: true, message: 'Fonds réservés.', data: { reservation } });
   } catch (err) {
     logger.error('Erreur création réservation', { err: err.message });
-    return res.status(500).json({ success: false, message: err.message });
+    return repondreErreur(res, err);
   }
 };
 
@@ -348,7 +381,7 @@ const libererReservation = async (req, res) => {
     return res.json({ success: true, message: 'Fonds libérés.', data: { reservation: updated } });
   } catch (err) {
     logger.error('Erreur libération réservation', { err: err.message });
-    return res.status(500).json({ success: false, message: err.message });
+    return repondreErreur(res, err);
   }
 };
 
@@ -378,7 +411,7 @@ const consommerReservation = async (req, res) => {
     return res.json({ success: true, message: 'Réservation consommée.', data: { reservation: updated[0] } });
   } catch (err) {
     logger.error('Erreur consommation réservation', { err: err.message });
-    return res.status(500).json({ success: false, message: err.message });
+    return repondreErreur(res, err);
   }
 };
 
@@ -393,7 +426,7 @@ const listerReservations = async (req, res) => {
     return res.json({ success: true, data: { reservations } });
   } catch (err) {
     logger.error('Erreur liste réservations', { err: err.message });
-    return res.status(500).json({ success: false, message: err.message });
+    return repondreErreur(res, err);
   }
 };
 
@@ -436,7 +469,7 @@ const payerService = async (req, res) => {
     return res.status(201).json({ success: true, message: 'Service payé.', data: { operation } });
   } catch (err) {
     logger.error('Erreur paiement de service', { err: err.message });
-    return res.status(500).json({ success: false, message: err.message });
+    return repondreErreur(res, err);
   }
 };
 
@@ -466,7 +499,7 @@ const getHistorique = async (req, res) => {
     return res.json({ success: true, data: { operations } });
   } catch (err) {
     logger.error('Erreur historique CLN', { err: err.message });
-    return res.status(500).json({ success: false, message: err.message });
+    return repondreErreur(res, err);
   }
 };
 
@@ -493,7 +526,7 @@ const getDepensesParDossier = async (req, res) => {
     });
   } catch (err) {
     logger.error('Erreur dépenses par dossier', { err: err.message });
-    return res.status(500).json({ success: false, message: err.message });
+    return repondreErreur(res, err);
   }
 };
 
@@ -533,7 +566,7 @@ const getReleve = async (req, res) => {
     });
   } catch (err) {
     logger.error('Erreur génération relevé', { err: err.message });
-    return res.status(500).json({ success: false, message: err.message });
+    return repondreErreur(res, err);
   }
 };
 
@@ -576,7 +609,7 @@ const compenser = async (req, res) => {
     return res.status(201).json({ success: true, message: 'Compensation appliquée.', data: { operation } });
   } catch (err) {
     logger.error('Erreur compensation', { err: err.message });
-    return res.status(500).json({ success: false, message: err.message });
+    return repondreErreur(res, err);
   }
 };
 
@@ -631,7 +664,7 @@ const repartirMontant = async (req, res) => {
     });
   } catch (err) {
     logger.error('Erreur répartition montant', { err: err.message });
-    return res.status(500).json({ success: false, message: err.message });
+    return repondreErreur(res, err);
   }
 };
 

@@ -8,6 +8,7 @@ const rateLimit = require('express-rate-limit');
 const prisma = require('./config/prisma');
 const paymentRoutes = require('./routes/payment.routes');
 const compteRoutes = require('./routes/compte.routes');
+const recuRoutes = require('./routes/recu.routes');
 const logger = require('./utils/logger');
 
 const app = express();
@@ -49,6 +50,7 @@ app.use(morgan('combined', {
 // ── Routes ────────────────────────────────────────────────────────────────────
 app.use('/paiements', paymentRoutes);
 app.use('/compte', compteRoutes);
+app.use('/recus', recuRoutes);
 
 // ── Health check ──────────────────────────────────────────────────────────────
 app.get('/health', async (req, res) => {

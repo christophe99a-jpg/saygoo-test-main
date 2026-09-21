@@ -27,7 +27,9 @@ jest.mock('../src/config/prisma', () => ({
     })
   },
   // $transaction reçoit un tableau de promesses déjà lancées par Prisma.
-  $transaction: jest.fn(async (operations) => Promise.all(operations)),
+  $transaction: jest.fn(async (arg) =>
+    typeof arg === 'function' ? arg(require('../src/config/prisma')) : Promise.all(arg)
+  ),
   $queryRaw: jest.fn(async () => [{ '?column?': 1 }]),
   $connect: jest.fn(async () => {}),
   $disconnect: jest.fn(async () => {})
@@ -67,7 +69,7 @@ const envoyerSigne = (charge, horodatage = maintenant()) => {
 
 beforeEach(() => {
   mockPaiements = [
-    { id: 'p1', reference: REFERENCE, statut: 'EN_COURS', numeroTransaction: null }
+    { id: 'p1', reference: REFERENCE, statut: 'EN_ATTENTE_CONFIRMATION', numeroTransaction: null, prestataire: 'PAYGATE_GLOBAL' }
   ];
   mockTentatives = [];
 });
@@ -82,7 +84,7 @@ describe('POST /paiements/webhook — vérification de signature', () => {
       .send({ reference: REFERENCE, statut: 'SUCCESS' });
 
     expect(res.status).toBe(401);
-    expect(mockPaiements[0].statut).toBe('EN_COURS');
+    expect(mockPaiements[0].statut).toBe('EN_ATTENTE_CONFIRMATION');
   });
 
   it('rejette une signature invalide', async () => {
@@ -95,7 +97,7 @@ describe('POST /paiements/webhook — vérification de signature', () => {
       .send(corps);
 
     expect(res.status).toBe(401);
-    expect(mockPaiements[0].statut).toBe('EN_COURS');
+    expect(mockPaiements[0].statut).toBe('EN_ATTENTE_CONFIRMATION');
   });
 
   it('rejette un webhook sans horodatage', async () => {
@@ -107,7 +109,7 @@ describe('POST /paiements/webhook — vérification de signature', () => {
       .send(corps);
 
     expect(res.status).toBe(401);
-    expect(mockPaiements[0].statut).toBe('EN_COURS');
+    expect(mockPaiements[0].statut).toBe('EN_ATTENTE_CONFIRMATION');
   });
 
   it('rejette un webhook rejoué hors de la fenêtre de 5 minutes', async () => {
@@ -117,7 +119,7 @@ describe('POST /paiements/webhook — vérification de signature', () => {
     );
 
     expect(res.status).toBe(401);
-    expect(mockPaiements[0].statut).toBe('EN_COURS');
+    expect(mockPaiements[0].statut).toBe('EN_ATTENTE_CONFIRMATION');
   });
 
   it('rejette une signature valide pour un corps différent', async () => {
@@ -131,7 +133,7 @@ describe('POST /paiements/webhook — vérification de signature', () => {
       .send(JSON.stringify({ reference: REFERENCE, statut: 'SUCCESS' }));
 
     expect(res.status).toBe(401);
-    expect(mockPaiements[0].statut).toBe('EN_COURS');
+    expect(mockPaiements[0].statut).toBe('EN_ATTENTE_CONFIRMATION');
   });
 });
 
@@ -146,7 +148,7 @@ describe('POST /paiements/webhook — traitement', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
-    expect(mockPaiements[0].statut).toBe('SUCCES');
+    expect(mockPaiements[0].statut).toBe('CONFIRME');
     expect(mockPaiements[0].numeroTransaction).toBe('PG-784521');
     expect(mockPaiements[0].datePaiement).toBeInstanceOf(Date);
     expect(mockTentatives).toHaveLength(1);
@@ -157,7 +159,7 @@ describe('POST /paiements/webhook — traitement', () => {
 
     expect(res.status).toBe(200);
     expect(mockPaiements[0].statut).toBe('ECHEC');
-    expect(mockPaiements[0].datePaiement).toBeNull();
+    expect(mockPaiements[0].datePaiement).toBeUndefined();
   });
 
   it('retourne 404 pour une référence inconnue', async () => {
@@ -175,15 +177,38 @@ describe('POST /paiements/webhook — traitement', () => {
 
 describe('POST /paiements/webhook — idempotence', () => {
 
-  it('ignore un rejeu sur un paiement déjà confirmé', async () => {
-    mockPaiements[0].statut = 'SUCCES';
+  it('ignore un webhook sur un paiement rapproché', async () => {
+    // Le cas réel : PayGate rejoue un échec après que le comptable
+    // a rapproché le paiement. Le rapprochement ne doit pas être défait.
+    mockPaiements[0].statut = 'RAPPROCHE';
 
     const res = await envoyerSigne({ reference: REFERENCE, statut: 'FAILED' });
 
     expect(res.status).toBe(200);
     expect(res.body.idempotent).toBe(true);
-    expect(mockPaiements[0].statut).toBe('SUCCES');
+    expect(mockPaiements[0].statut).toBe('RAPPROCHE');
     expect(mockTentatives).toHaveLength(0);
+  });
+
+  it('refuse de faire échouer un paiement déjà confirmé', async () => {
+    // CONFIRME n'est pas figé (il peut encore être rapproché), mais la
+    // machine à états interdit CONFIRME -> ECHEC.
+    mockPaiements[0].statut = 'CONFIRME';
+
+    const res = await envoyerSigne({ reference: REFERENCE, statut: 'FAILED' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.ignore).toBe(true);
+    expect(mockPaiements[0].statut).toBe('CONFIRME');
+    expect(mockTentatives).toHaveLength(0);
+  });
+
+  it('ignore un statut prestataire inconnu sans rien modifier', async () => {
+    const res = await envoyerSigne({ reference: REFERENCE, statut: 'STATUT_BIZARRE' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.ignore).toBe(true);
+    expect(mockPaiements[0].statut).toBe('EN_ATTENTE_CONFIRMATION');
   });
 
   it('ignore un rejeu sur un paiement annulé', async () => {
