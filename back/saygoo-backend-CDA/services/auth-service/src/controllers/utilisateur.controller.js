@@ -38,7 +38,7 @@ const lister = async (req, res) => {
     });
   } catch (err) {
     logger.error('Erreur liste utilisateurs', { err: err.message });
-    return res.status(500).json({ success: false, message: err.message });
+    return res.status(500).json({ success: false, message: 'Erreur interne.' });
   }
 };
 
@@ -51,7 +51,7 @@ const getUn = async (req, res) => {
     return res.json({ success: true, data: { utilisateur: nettoyer(utilisateur) } });
   } catch (err) {
     logger.error('Erreur détail utilisateur', { err: err.message });
-    return res.status(500).json({ success: false, message: err.message });
+    return res.status(500).json({ success: false, message: 'Erreur interne.' });
   }
 };
 
@@ -99,7 +99,7 @@ const changerStatut = async (req, res) => {
     return res.json({ success: true, message: `Statut mis à jour : ${statut}.`, data: { utilisateur: nettoyer(maj) } });
   } catch (err) {
     logger.error('Erreur changement statut', { err: err.message });
-    return res.status(500).json({ success: false, message: err.message });
+    return res.status(500).json({ success: false, message: 'Erreur interne.' });
   }
 };
 
@@ -128,7 +128,7 @@ const changerRole = async (req, res) => {
     return res.json({ success: true, message: `Rôle mis à jour : ${role}.`, data: { utilisateur: nettoyer(maj) } });
   } catch (err) {
     logger.error('Erreur changement rôle', { err: err.message });
-    return res.status(500).json({ success: false, message: err.message });
+    return res.status(500).json({ success: false, message: 'Erreur interne.' });
   }
 };
 
@@ -153,7 +153,7 @@ const getJournal = async (req, res) => {
     });
   } catch (err) {
     logger.error('Erreur journal auth', { err: err.message });
-    return res.status(500).json({ success: false, message: err.message });
+    return res.status(500).json({ success: false, message: 'Erreur interne.' });
   }
 };
 

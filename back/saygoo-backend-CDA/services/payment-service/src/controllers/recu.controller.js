@@ -1,6 +1,7 @@
 const prisma = require('../config/prisma');
 const logger = require('../utils/logger');
 const { LIBELLES } = require('../services/paiement.etats');
+const { peutAcceder } = require('../services/acces');
 const {
   STATUTS_RECU,
   signatureValide,
@@ -56,7 +57,7 @@ const attribuerNumeroRecu = async (paiement) => {
 const telechargerRecu = async (req, res) => {
   try {
     const paiement = await prisma.paiement.findUnique({ where: { id: req.params.id } });
-    if (!paiement) {
+    if (!paiement || !peutAcceder(req.user, paiement)) {
       return res.status(404).json({ success: false, message: 'Paiement non trouvé.' });
     }
 

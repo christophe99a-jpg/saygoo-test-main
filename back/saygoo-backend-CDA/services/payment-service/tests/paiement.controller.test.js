@@ -65,14 +65,16 @@ jest.mock('../src/config/prisma', () => {
 
 const app = require('../src/app');
 
-const jeton = (role, sub = 'agent-1') =>
-  `Bearer ${jwt.sign({ sub, role, firstName: 'Awa', lastName: 'Mensah' }, process.env.JWT_ACCESS_SECRET, {
+const jeton = (role, organisationId, sub = 'agent-1') =>
+  `Bearer ${jwt.sign({ sub, role, organisationId, firstName: 'Awa', lastName: 'Mensah' }, process.env.JWT_ACCESS_SECRET, {
     issuer: 'saygoo-auth', audience: 'saygoo-app', expiresIn: '1h'
   })}`;
 
+// Le client qui paie a l'organisation CLI-1 (son identifiant), le CDA qui le
+// suit a ORG-CDA. Le comptable est du personnel SAYGOO, sans organisation.
 const COMPTABLE = () => jeton('COMPTABLE');
-const CDA = () => jeton('CDA');
-const CLIENT = () => jeton('CLIENT');
+const CDA = () => jeton('CDA', 'ORG-CDA');
+const CLIENT = () => jeton('OPERATEUR_ECONOMIQUE', 'CLI-1');
 
 /** Crée directement un paiement dans un état donné. */
 const paiementEn = (statut, extra = {}) => {
@@ -82,6 +84,8 @@ const paiementEn = (statut, extra = {}) => {
     clientId: 'CLI-1', clientNom: 'Acme SARL',
     montant: 850000, methode: 'FLOOZ', statut,
     prestataire: 'PAYGATE_GLOBAL',
+    organisationId: 'CLI-1',
+    suiviParOrganisationId: 'ORG-CDA',
     createdAt: new Date(),
     ...extra
   };

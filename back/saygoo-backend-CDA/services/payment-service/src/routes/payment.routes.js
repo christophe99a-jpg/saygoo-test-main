@@ -46,7 +46,9 @@ router.get('/', paymentController.listerPaiements);
 // POST /paiements — Initier un paiement
 router.post(
   '/',
-  authorize('SUPER_ADMIN', 'CDA', 'COMPTABLE', 'CLIENT'),
+  // OPERATEUR_ECONOMIQUE remplace 'CLIENT', qui n'existe pas dans les rôles :
+  // l'importateur recevait un 403 et ne pouvait pas payer lui-même.
+  authorize('SUPER_ADMIN', 'CDA', 'COMPTABLE', 'OPERATEUR_ECONOMIQUE'),
   paymentController.initierPaiement
 );
 

@@ -45,8 +45,9 @@ const app = require('../src/app');
 const prisma = require('../src/config/prisma');
 const { signerRecu } = require('../src/services/recu');
 
-const jeton = (role) =>
-  `Bearer ${jwt.sign({ sub: 'user-1', role }, process.env.JWT_ACCESS_SECRET, {
+// Le jeton client porte l'organisation CLI-1, celle des paiements de test.
+const jeton = (role, organisationId = 'CLI-1') =>
+  `Bearer ${jwt.sign({ sub: 'user-1', role, organisationId }, process.env.JWT_ACCESS_SECRET, {
     issuer: 'saygoo-auth', audience: 'saygoo-app', expiresIn: '1h'
   })}`;
 
@@ -61,6 +62,7 @@ const paiement = (extra = {}) => {
     montant: 850000, devise: 'XOF',
     methode: 'FLOOZ', prestataire: 'PAYGATE_GLOBAL',
     statut: 'CONFIRME',
+    organisationId: 'CLI-1',
     datePaiement: new Date('2026-09-14T14:06:00Z'),
     ...extra
   };
@@ -80,7 +82,7 @@ describe('GET /paiements/:id/recu — téléchargement', () => {
   it('renvoie un PDF pour un paiement confirmé', async () => {
     const p = paiement();
     const res = await request(app).get(`/paiements/${p.id}/recu`)
-      .set('Authorization', jeton('CLIENT'))
+      .set('Authorization', jeton('OPERATEUR_ECONOMIQUE'))
       .buffer(true).parse((r, cb) => {
         const morceaux = [];
         r.on('data', (m) => morceaux.push(m));
@@ -95,7 +97,7 @@ describe('GET /paiements/:id/recu — téléchargement', () => {
 
   it('attribue un numéro de reçu au format REC-AAAA-NNNNNN', async () => {
     const p = paiement();
-    const res = await request(app).get(`/paiements/${p.id}/recu`).set('Authorization', jeton('CLIENT'));
+    const res = await request(app).get(`/paiements/${p.id}/recu`).set('Authorization', jeton('OPERATEUR_ECONOMIQUE'));
 
     const annee = new Date().getUTCFullYear();
     expect(p.numeroRecu).toBe(`REC-${annee}-008742`);
@@ -104,11 +106,11 @@ describe('GET /paiements/:id/recu — téléchargement', () => {
 
   it('conserve le même numéro aux téléchargements suivants', async () => {
     const p = paiement();
-    await request(app).get(`/paiements/${p.id}/recu`).set('Authorization', jeton('CLIENT'));
+    await request(app).get(`/paiements/${p.id}/recu`).set('Authorization', jeton('OPERATEUR_ECONOMIQUE'));
     const premier = p.numeroRecu;
 
     prisma.$queryRawUnsafe.mockClear();
-    await request(app).get(`/paiements/${p.id}/recu`).set('Authorization', jeton('CLIENT'));
+    await request(app).get(`/paiements/${p.id}/recu`).set('Authorization', jeton('OPERATEUR_ECONOMIQUE'));
 
     expect(p.numeroRecu).toBe(premier);
     // La séquence n'a pas été consommée une seconde fois.
@@ -117,14 +119,14 @@ describe('GET /paiements/:id/recu — téléchargement', () => {
 
   it('refuse un reçu pour un paiement non encaissé', async () => {
     const p = paiement({ statut: 'EN_ATTENTE_CONFIRMATION' });
-    const res = await request(app).get(`/paiements/${p.id}/recu`).set('Authorization', jeton('CLIENT'));
+    const res = await request(app).get(`/paiements/${p.id}/recu`).set('Authorization', jeton('OPERATEUR_ECONOMIQUE'));
 
     expect(res.status).toBe(409);
     expect(p.numeroRecu).toBeNull();
   });
 
   it('retourne 404 pour un paiement inexistant', async () => {
-    const res = await request(app).get('/paiements/inexistant/recu').set('Authorization', jeton('CLIENT'));
+    const res = await request(app).get('/paiements/inexistant/recu').set('Authorization', jeton('OPERATEUR_ECONOMIQUE'));
     expect(res.status).toBe(404);
   });
 

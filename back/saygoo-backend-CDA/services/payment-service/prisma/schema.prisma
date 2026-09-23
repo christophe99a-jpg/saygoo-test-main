@@ -59,6 +59,9 @@ model Paiement {
   agentId         String?
   agentNom        String?
   organisationId  String?
+  /// Organisation qui suit le paiement pour le client, typiquement le CDA
+  /// qui l'a initie. organisationId reste celle du client qui paie.
+  suiviParOrganisationId String?
   dateEcheance    DateTime?
   datePaiement    DateTime?
   webhookData     Json?
@@ -89,6 +92,7 @@ model Paiement {
   @@index([reference])
   @@index([dlnuRef])
   @@index([conteneurNum])
+  @@index([suiviParOrganisationId])
 }
 
 model TentativePaiement {

@@ -56,15 +56,19 @@ describe('Isolation par organisation', () => {
     await request(app).get('/paiements')
       .set('Authorization', jetonAuthService({ organisationId: 'ORG-1' }));
 
+    // Visible s'il appartient à l'organisation ou si elle le suit.
     const appel = prisma.paiement.findMany.mock.calls[0][0];
-    expect(appel.where.organisationId).toBe('ORG-1');
+    expect(appel.where.OR).toEqual([
+      { organisationId: 'ORG-1' },
+      { suiviParOrganisationId: 'ORG-1' }
+    ]);
   });
 
   it('accepte encore l’ancien nom orgId', async () => {
     await request(app).get('/paiements')
       .set('Authorization', jetonAuthService({ orgId: 'ORG-2' }));
 
-    expect(prisma.paiement.findMany.mock.calls[0][0].where.organisationId).toBe('ORG-2');
+    expect(prisma.paiement.findMany.mock.calls[0][0].where.OR[0]).toEqual({ organisationId: 'ORG-2' });
   });
 });
 

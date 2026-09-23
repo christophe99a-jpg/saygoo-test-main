@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const { authenticator } = require('otplib');
 const qrcode = require('qrcode');
@@ -25,10 +26,27 @@ const contexteRequete = (req) => ({
   userAgent: req.headers['user-agent'],
 });
 
+/**
+ * Rôles qu'un visiteur peut choisir lui-même en s'inscrivant.
+ *
+ * Les rôles du personnel SAYGOO (SUPER_ADMIN, ADMIN, COMPTABLE, MANAGER)
+ * sont exclus : ils ne s'attribuent que depuis l'administration des comptes.
+ * Auparavant, l'API acceptait n'importe quel rôle, et seule la validation
+ * manuelle par un administrateur empêchait qu'un inconnu devienne
+ * super-administrateur.
+ */
+const ROLES_INSCRIPTION = [
+  'OPERATEUR_ECONOMIQUE',
+  'CDA',
+  'CONSIGNATAIRE',
+  'GESTIONNAIRE_ENTREPOT',
+  'TRANSPORTEUR',
+];
+
 // ── INSCRIPTION ──────────────────────────────────────────────────────────────────
 const register = async (req, res) => {
   try {
-    const { email, motDePasse, prenom, nom, telephone, role, organisationId, raisonSociale } = req.body;
+    const { email, motDePasse, prenom, nom, telephone, role, raisonSociale } = req.body;
 
     if (!email || !motDePasse || !prenom || !nom || !role) {
       return res.status(400).json({
@@ -38,6 +56,12 @@ const register = async (req, res) => {
     }
     if (motDePasse.length < 8) {
       return res.status(400).json({ success: false, message: 'Le mot de passe doit contenir au moins 8 caractères.' });
+    }
+    if (!ROLES_INSCRIPTION.includes(role)) {
+      return res.status(400).json({
+        success: false,
+        message: "Ce rôle ne peut pas être choisi à l'inscription.",
+      });
     }
 
     const emailNormalise = email.toLowerCase().trim();
@@ -49,15 +73,25 @@ const register = async (req, res) => {
 
     const motDePasseHash = await bcrypt.hash(motDePasse, 12);
 
+    // Chaque compte est, pour l'instant, sa propre organisation.
+    // L'identifiant est tiré ici pour servir aussi d'identifiant
+    // d'organisation dès la création.
+    //
+    // Toute valeur d'organisation envoyée par le client est ignorée :
+    // l'accepter permettrait de s'inscrire dans l'organisation d'une autre
+    // société et d'en consulter les paiements.
+    const id = crypto.randomUUID();
+
     const utilisateur = await prisma.utilisateur.create({
       data: {
+        id,
         email: emailNormalise,
         motDePasseHash,
         prenom,
         nom,
         telephone,
         role,
-        organisationId,
+        organisationId: id,
         raisonSociale,
         statut: 'EN_ATTENTE_VALIDATION',
       },
@@ -89,7 +123,7 @@ const register = async (req, res) => {
     });
   } catch (err) {
     logger.error('Erreur inscription', { err: err.message });
-    return res.status(500).json({ success: false, message: err.message });
+    return res.status(500).json({ success: false, message: 'Erreur interne.' });
   }
 };
 
@@ -208,7 +242,7 @@ const login = async (req, res) => {
     });
   } catch (err) {
     logger.error('Erreur connexion', { err: err.message });
-    return res.status(500).json({ success: false, message: err.message });
+    return res.status(500).json({ success: false, message: 'Erreur interne.' });
   }
 };
 
@@ -259,7 +293,7 @@ const refresh = async (req, res) => {
     });
   } catch (err) {
     logger.error('Erreur rafraîchissement token', { err: err.message });
-    return res.status(500).json({ success: false, message: err.message });
+    return res.status(500).json({ success: false, message: 'Erreur interne.' });
   }
 };
 
@@ -285,7 +319,7 @@ const logout = async (req, res) => {
     return res.json({ success: true, message: 'Déconnexion effectuée.' });
   } catch (err) {
     logger.error('Erreur déconnexion', { err: err.message });
-    return res.status(500).json({ success: false, message: err.message });
+    return res.status(500).json({ success: false, message: 'Erreur interne.' });
   }
 };
 
@@ -299,7 +333,7 @@ const me = async (req, res) => {
     return res.json({ success: true, data: { utilisateur: nettoyer(utilisateur) } });
   } catch (err) {
     logger.error('Erreur profil', { err: err.message });
-    return res.status(500).json({ success: false, message: err.message });
+    return res.status(500).json({ success: false, message: 'Erreur interne.' });
   }
 };
 
@@ -335,7 +369,7 @@ const changerMotDePasse = async (req, res) => {
     return res.json({ success: true, message: 'Mot de passe modifié. Veuillez vous reconnecter.' });
   } catch (err) {
     logger.error('Erreur changement mot de passe', { err: err.message });
-    return res.status(500).json({ success: false, message: err.message });
+    return res.status(500).json({ success: false, message: 'Erreur interne.' });
   }
 };
 
@@ -372,7 +406,7 @@ const motDePasseOublie = async (req, res) => {
     });
   } catch (err) {
     logger.error('Erreur mot de passe oublié', { err: err.message });
-    return res.status(500).json({ success: false, message: err.message });
+    return res.status(500).json({ success: false, message: 'Erreur interne.' });
   }
 };
 
@@ -409,7 +443,7 @@ const reinitialiserMotDePasse = async (req, res) => {
     return res.json({ success: true, message: 'Mot de passe réinitialisé. Vous pouvez vous connecter.' });
   } catch (err) {
     logger.error('Erreur réinitialisation mot de passe', { err: err.message });
-    return res.status(500).json({ success: false, message: err.message });
+    return res.status(500).json({ success: false, message: 'Erreur interne.' });
   }
 };
 
@@ -438,7 +472,7 @@ const verifierEmail = async (req, res) => {
     });
   } catch (err) {
     logger.error('Erreur vérification email', { err: err.message });
-    return res.status(500).json({ success: false, message: err.message });
+    return res.status(500).json({ success: false, message: 'Erreur interne.' });
   }
 };
 
@@ -465,7 +499,7 @@ const initialiser2FA = async (req, res) => {
     });
   } catch (err) {
     logger.error('Erreur initialisation 2FA', { err: err.message });
-    return res.status(500).json({ success: false, message: err.message });
+    return res.status(500).json({ success: false, message: 'Erreur interne.' });
   }
 };
 
@@ -492,7 +526,7 @@ const activer2FA = async (req, res) => {
     return res.json({ success: true, message: 'Double authentification activée.' });
   } catch (err) {
     logger.error('Erreur activation 2FA', { err: err.message });
-    return res.status(500).json({ success: false, message: err.message });
+    return res.status(500).json({ success: false, message: 'Erreur interne.' });
   }
 };
 
@@ -517,7 +551,7 @@ const desactiver2FA = async (req, res) => {
     return res.json({ success: true, message: 'Double authentification désactivée.' });
   } catch (err) {
     logger.error('Erreur désactivation 2FA', { err: err.message });
-    return res.status(500).json({ success: false, message: err.message });
+    return res.status(500).json({ success: false, message: 'Erreur interne.' });
   }
 };
 

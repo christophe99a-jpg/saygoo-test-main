@@ -8,6 +8,11 @@ const {
   traduireStatutPrestataire,
   genererReferencePaiement
 } = require('../services/paiement.etats');
+const {
+  filtreAcces,
+  peutAcceder,
+  organisationsDuPaiement
+} = require('../services/acces');
 
 /**
  * Les quatre moyens de paiement retenus par le cahier des charges.
@@ -21,8 +26,20 @@ const METHODES = {
   TMONEY: { prestataire: 'PAYGATE_GLOBAL', mobileMoney: true }
 };
 
-const erreurInterne = (res) =>
-  res.status(500).json({ success: false, message: 'Erreur interne.' });
+/**
+ * Réponse d'erreur commune. Un utilisateur sans organisation reçoit un 403
+ * explicite ; toute autre erreur reste générique côté client, son détail
+ * n'apparaissant que dans les logs.
+ */
+const erreurInterne = (res, err) => {
+  if (err?.code === 'SANS_ORGANISATION') {
+    return res.status(403).json({
+      success: false,
+      message: "Votre compte n'est rattaché à aucune organisation."
+    });
+  }
+  return res.status(500).json({ success: false, message: 'Erreur interne.' });
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Transition unique
@@ -126,7 +143,7 @@ const initierPaiement = async (req, res) => {
   try {
     const {
       factureId, factureNum, dossierId, dossierRef,
-      clientId, clientNom, clientTel,
+      clientId, clientNom, clientTel, clientOrganisationId,
       montant, devise, methode, notes, dateEcheance
     } = req.body;
 
@@ -150,6 +167,15 @@ const initierPaiement = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Montant invalide.' });
     }
 
+    // Le paiement appartient au client ; le CDA qui l'initie le suit.
+    const organisations = organisationsDuPaiement(req.user, { clientOrganisationId, clientId });
+    if (!organisations.organisationId) {
+      return res.status(400).json({
+        success: false,
+        message: "L'organisation du client est requise pour rattacher le paiement."
+      });
+    }
+
     const resultat = await prisma.$transaction(async (tx) => {
       const reference = await genererReferencePaiement(tx);
 
@@ -166,7 +192,8 @@ const initierPaiement = async (req, res) => {
           statut: STATUTS.CREE,
           agentId: req.user?.sub,
           agentNom: req.user ? `${req.user.firstName || ''} ${req.user.lastName || ''}`.trim() || null : null,
-          organisationId: req.user?.orgId,
+          organisationId: organisations.organisationId,
+          suiviParOrganisationId: organisations.suiviParOrganisationId,
           dateEcheance: dateEcheance ? new Date(dateEcheance) : null
         }
       });
@@ -218,7 +245,7 @@ const initierPaiement = async (req, res) => {
     });
   } catch (err) {
     logger.error('Erreur initiation paiement', { err: err.message, stack: err.stack });
-    return erreurInterne(res);
+    return erreurInterne(res, err);
   }
 };
 
@@ -230,9 +257,19 @@ const initierPaiement = async (req, res) => {
  * Charge un paiement et renvoie 404 s'il n'existe pas.
  * Renvoie null quand la réponse a déjà été envoyée.
  */
-const chargerPaiement = async (id, res) => {
-  const paiement = await prisma.paiement.findUnique({ where: { id } });
-  if (!paiement) {
+/**
+ * Charge un paiement en vérifiant que l'utilisateur y a accès.
+ *
+ * Un paiement inaccessible reçoit la même réponse qu'un paiement inexistant :
+ * répondre 403 révélerait qu'il existe.
+ * Renvoie null quand la réponse a déjà été envoyée.
+ */
+const chargerPaiement = async (req, res, options = {}) => {
+  const paiement = await prisma.paiement.findUnique({
+    where: { id: req.params.id },
+    ...(options.include ? { include: options.include } : {})
+  });
+  if (!paiement || !peutAcceder(req.user, paiement)) {
     res.status(404).json({ success: false, message: 'Paiement non trouvé.' });
     return null;
   }
@@ -244,7 +281,7 @@ const refuserTransition = (res, resultat) =>
 
 const confirmerPaiement = async (req, res) => {
   try {
-    const paiement = await chargerPaiement(req.params.id, res);
+    const paiement = await chargerPaiement(req, res);
     if (!paiement) return;
 
     const { numeroTransaction, notes } = req.body;
@@ -265,7 +302,7 @@ const confirmerPaiement = async (req, res) => {
     });
   } catch (err) {
     logger.error('Erreur confirmation paiement', { err: err.message });
-    return erreurInterne(res);
+    return erreurInterne(res, err);
   }
 };
 
@@ -278,7 +315,7 @@ const confirmerPaiement = async (req, res) => {
  */
 const rapprocherPaiement = async (req, res) => {
   try {
-    const paiement = await chargerPaiement(req.params.id, res);
+    const paiement = await chargerPaiement(req, res);
     if (!paiement) return;
 
     const { conteneurNum, serviceRendu, dossierRef, factureNum, dlnuRef } = req.body;
@@ -318,13 +355,13 @@ const rapprocherPaiement = async (req, res) => {
     });
   } catch (err) {
     logger.error('Erreur rapprochement', { err: err.message });
-    return erreurInterne(res);
+    return erreurInterne(res, err);
   }
 };
 
 const demanderRemboursement = async (req, res) => {
   try {
-    const paiement = await chargerPaiement(req.params.id, res);
+    const paiement = await chargerPaiement(req, res);
     if (!paiement) return;
 
     const { motif } = req.body;
@@ -347,13 +384,13 @@ const demanderRemboursement = async (req, res) => {
     });
   } catch (err) {
     logger.error('Erreur demande de remboursement', { err: err.message });
-    return erreurInterne(res);
+    return erreurInterne(res, err);
   }
 };
 
 const annulerPaiement = async (req, res) => {
   try {
-    const paiement = await chargerPaiement(req.params.id, res);
+    const paiement = await chargerPaiement(req, res);
     if (!paiement) return;
 
     const { motif } = req.body;
@@ -374,7 +411,7 @@ const annulerPaiement = async (req, res) => {
     });
   } catch (err) {
     logger.error('Erreur annulation paiement', { err: err.message });
-    return erreurInterne(res);
+    return erreurInterne(res, err);
   }
 };
 
@@ -391,6 +428,9 @@ const webhook = async (req, res) => {
     }
 
     const paiement = await prisma.paiement.findFirst({ where: { reference } });
+    // Pas de contrôle d'accès par organisation ici : le prestataire n'est pas
+    // un utilisateur SAYGOO. Il est authentifié par la signature HMAC,
+    // vérifiée par le middleware avant d'arriver dans ce contrôleur.
     if (!paiement) {
       return res.status(404).json({ success: false, message: 'Paiement non trouvé.' });
     }
@@ -439,7 +479,7 @@ const webhook = async (req, res) => {
     return res.json({ success: true, message: 'Webhook traité.' });
   } catch (err) {
     logger.error('Erreur webhook', { err: err.message, stack: err.stack });
-    return erreurInterne(res);
+    return erreurInterne(res, err);
   }
 };
 
@@ -463,7 +503,7 @@ const listerPaiements = async (req, res) => {
     }
     if (methode) where.methode = methode;
     if (clientId) where.clientId = clientId;
-    if (req.user?.orgId) where.organisationId = req.user.orgId;
+    Object.assign(where, filtreAcces(req.user));
     if (dateDebut || dateFin) {
       where.createdAt = {};
       if (dateDebut) where.createdAt.gte = new Date(dateDebut);
@@ -493,7 +533,7 @@ const listerPaiements = async (req, res) => {
     });
   } catch (err) {
     logger.error('Erreur liste paiements', { err: err.message });
-    return erreurInterne(res);
+    return erreurInterne(res, err);
   }
 };
 
@@ -504,7 +544,8 @@ const getPaiement = async (req, res) => {
       include: { tentatives: { orderBy: { createdAt: 'asc' } } }
     });
 
-    if (!paiement) {
+    // Inaccessible ou inexistant : même réponse, pour ne pas révéler l'existence.
+    if (!paiement || !peutAcceder(req.user, paiement)) {
       return res.status(404).json({ success: false, message: 'Paiement non trouvé.' });
     }
 
@@ -514,7 +555,7 @@ const getPaiement = async (req, res) => {
     });
   } catch (err) {
     logger.error('Erreur lecture paiement', { err: err.message });
-    return erreurInterne(res);
+    return erreurInterne(res, err);
   }
 };
 
@@ -537,7 +578,8 @@ const getTimeline = async (req, res) => {
       include: { tentatives: { orderBy: { createdAt: 'asc' } } }
     });
 
-    if (!paiement) {
+    // Inaccessible ou inexistant : même réponse, pour ne pas révéler l'existence.
+    if (!paiement || !peutAcceder(req.user, paiement)) {
       return res.status(404).json({ success: false, message: 'Paiement non trouvé.' });
     }
 
@@ -559,7 +601,7 @@ const getTimeline = async (req, res) => {
     });
   } catch (err) {
     logger.error('Erreur timeline', { err: err.message });
-    return erreurInterne(res);
+    return erreurInterne(res, err);
   }
 };
 
@@ -573,7 +615,7 @@ const getTimeline = async (req, res) => {
 const getStatistiques = async (req, res) => {
   try {
     const where = {};
-    if (req.user?.orgId) where.organisationId = req.user.orgId;
+    Object.assign(where, filtreAcces(req.user));
 
     const groupes = await prisma.paiement.groupBy({
       by: ['statut'],
@@ -610,7 +652,7 @@ const getStatistiques = async (req, res) => {
     });
   } catch (err) {
     logger.error('Erreur statistiques', { err: err.message });
-    return erreurInterne(res);
+    return erreurInterne(res, err);
   }
 };
 
